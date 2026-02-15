@@ -1,0 +1,14 @@
+# YOLOv8 Face Detection Dependencies
+ultralytics>=8.0.0
+opencv-python>=4.8.0
+numpy>=1.24.0
+pillow>=10.0.0
+
+# Future Integration Dependencies
+deepface>=0.0.79
+pymilvus>=2.3.0
+
+# Additional Utilities
+torch>=2.0.0
+torchvision>=0.15.0
+tf-keras>=2.14.1

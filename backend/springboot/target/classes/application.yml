@@ -1,0 +1,34 @@
+spring:
+  application:
+    name: face-recognition-backend
+  
+  # RabbitMQ 配置
+  rabbitmq:
+    host: localhost
+    port: 5888
+    username: guest
+    password: guest
+    listener:
+      simple:
+        acknowledge-mode: auto
+        concurrency: 1
+        max-concurrency: 5
+
+  # MinIO 配置 (对象存储)
+  minio:
+    endpoint: http://localhost:30000
+    accessKey: minioadmin
+    secretKey: minioadmin
+    bucketName: faces
+
+  # Milvus 配置 (向量数据库)
+  milvus:
+    host: localhost
+    port: 19530
+    collectionName: face_embeddings
+
+logging:
+  level:
+    com.face.recognition: DEBUG
+  charset:
+    console: UTF-8

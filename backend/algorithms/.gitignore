@@ -1,0 +1,34 @@
+# 忽略 Python 缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# 忽略虚拟环境
+venv/
+env/
+ENV/
+
+# 忽略 YOLOv8 模型文件（太大）
+*.pt
+*.pth
+*.onnx
+*.engine
+
+# 忽略输出文件
+output/
+runs/
+
+# 忽略临时文件
+*.tmp
+*.log
+
+# 忽略 IDE 配置
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
