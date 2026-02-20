@@ -1,0 +1,8 @@
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\config\RabbitConfig.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\FaceRecognitionApplication.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\model\FaceDataMessage.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\service\FaceStorageService.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\config\MilvusConfig.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\model\FaceMetadata.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\consumer\FaceMQConsumer.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\config\MinioConfig.java
