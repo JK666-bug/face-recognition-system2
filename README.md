@@ -72,3 +72,36 @@ Face-Recognition-System/
 
 
 ```
+
+```
+1. 创建虚拟环境
+.\.venv\Scripts\Activate.ps1
+
+2.docker
+docker-compose up -d 重建
+docker-compose start 重启
+docker-compose stop
+
+3.开启终端
+backend\springboot\src\main\java\com\face\recognition\FaceRecognitionApplication.java
+
+4. 开启识别算法
+python backend\algorithms\demo.py --source backend\algorithms\media\face3.mp4 --location home
+```
+
+
+1. RabbitMQ 账号密码
+用户名：guest
+密　码：guest
+管理后台地址：http://localhost:15672
+
+
+2. MinIO 账号密码
+用户名 (Access Key)：minioadmin
+密　码 (Secret Key)：minioadmin
+控制台地址：http://localhost:30001
+
+3. Milvus 登录/连接信息
+用户名：留空（不需要输入）
+密　码：留空（不需要输入）
+Milvus 地址：localhost:19530
