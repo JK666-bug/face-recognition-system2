@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import io.milvus.param.R;
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
 import java.util.UUID;
@@ -40,24 +41,24 @@ public class FaceStorageService {
             boolean found = minioClient.bucketExists(io.minio.BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
                 minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(bucketName).build());
-                log.info("📁 MinIO Bucket '{}' 已创建。", bucketName);
+                log.info("MinIO Bucket '{}' created.", bucketName);
             }
 
             boolean placesFound = minioClient
                     .bucketExists(io.minio.BucketExistsArgs.builder().bucket(placesBucketName).build());
             if (!placesFound) {
                 minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(placesBucketName).build());
-                log.info("📍 MinIO Places Bucket '{}' 已创建。", placesBucketName);
+                log.info("MinIO Places Bucket '{}' created.", placesBucketName);
             }
 
             boolean videoFound = minioClient
                     .bucketExists(io.minio.BucketExistsArgs.builder().bucket(videoBucketName).build());
             if (!videoFound) {
                 minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(videoBucketName).build());
-                log.info("🎬 MinIO Video Bucket '{}' 已创建。", videoBucketName);
+                log.info("MinIO Video Bucket '{}' created.", videoBucketName);
             }
         } catch (Exception e) {
-            log.error("❌ 初始化 MinIO Buckets 失败: ", e);
+            log.error("Failed to initialize MinIO Buckets: ", e);
         }
 
         // 2. 初始化 Milvus Collection
@@ -66,20 +67,22 @@ public class FaceStorageService {
 
     private void initMilvusCollection() {
         try {
+            log.info("Checking Milvus collection: {}", collectionName);
             io.milvus.param.R<Boolean> response = milvusClient.hasCollection(
                     io.milvus.param.collection.HasCollectionParam.newBuilder()
                             .withCollectionName(collectionName)
                             .build());
 
             if (response.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
-                log.error("❌ 检查 Milvus 集合失败: {}", response.getMessage());
+                log.error("Failed to check Milvus collection status: {}, Message: {}",
+                        response.getStatus(), response.getMessage());
                 return;
             }
 
             boolean exists = response.getData();
 
             if (!exists) {
-                log.info("🧬 Milvus 集合 '{}' 不存在，正在创建...", collectionName);
+                log.info("Milvus collection '{}' does not exist, creating...", collectionName);
 
                 // 定义字段
                 io.milvus.param.collection.FieldType idField = io.milvus.param.collection.FieldType.newBuilder()
@@ -96,15 +99,20 @@ public class FaceStorageService {
                         .build();
 
                 // 创建集合
-                milvusClient.createCollection(
+                io.milvus.param.R<?> createRes = milvusClient.createCollection(
                         io.milvus.param.collection.CreateCollectionParam.newBuilder()
                                 .withCollectionName(collectionName)
                                 .addFieldType(idField)
                                 .addFieldType(vectorField)
                                 .build());
 
+                if (createRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                    log.error("Failed to create Milvus collection: {}", createRes.getMessage());
+                    return;
+                }
+
                 // 创建索引 (加速搜索)
-                milvusClient.createIndex(
+                io.milvus.param.R<?> indexRes = milvusClient.createIndex(
                         io.milvus.param.index.CreateIndexParam.newBuilder()
                                 .withCollectionName(collectionName)
                                 .withFieldName("vector")
@@ -113,15 +121,29 @@ public class FaceStorageService {
                                 .withExtraParam("{\"nlist\":1024}")
                                 .build());
 
+                if (indexRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                    log.error("Failed to create Milvus index: {}", indexRes.getMessage());
+                }
+
                 // 加载集合到内存
-                milvusClient.loadCollection(
+                io.milvus.param.R<?> loadRes = milvusClient.loadCollection(
                         io.milvus.param.collection.LoadCollectionParam.newBuilder()
                                 .withCollectionName(collectionName)
                                 .build());
-                log.info("✅ Milvus 集合 '{}' 初始化并加载完成。", collectionName);
+
+                if (loadRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                    log.error("Failed to load Milvus collection: {}", loadRes.getMessage());
+                } else {
+                    log.info("Milvus collection '{}' initialized and loaded.", collectionName);
+                }
+            } else {
+                log.info("Milvus collection '{}' already exists.", collectionName);
+                // 确保已加载
+                milvusClient.loadCollection(io.milvus.param.collection.LoadCollectionParam.newBuilder()
+                        .withCollectionName(collectionName).build());
             }
         } catch (Exception e) {
-            log.error("❌ 初始化 Milvus 失败: ", e);
+            log.error("Exception during Milvus initialization: ", e);
         }
     }
 
@@ -153,12 +175,12 @@ public class FaceStorageService {
 
     private void handleVideoData(FaceDataMessage message) {
         if (message.getVideo_id() == null || message.getVideo_base64() == null) {
-            log.warn("⚠️ 收到无效的视频消息: video_id 或 video_base64 为空");
+            log.warn("Received invalid video message: video_id or video_base64 is null");
             return;
         }
 
         try {
-            log.info("🎞️  正在处理 [视频] 数据通过 MQ: {}", message.getVideo_id());
+            log.info("Processing [VIDEO] data via MQ: {}", message.getVideo_id());
             // Base64 解码视频文件
             byte[] videoBytes = Base64.getDecoder().decode(message.getVideo_base64());
 
@@ -171,9 +193,9 @@ public class FaceStorageService {
                             .contentType("video/mp4")
                             .build());
 
-            log.info("🎬 视频已从 MQ 传输并存入 MinIO: {}", message.getVideo_id());
+            log.info("Video transmitted from MQ and saved to MinIO: {}", message.getVideo_id());
         } catch (Exception e) {
-            log.error("❌ 存入视频到 MinIO 失败: ", e);
+            log.error("Failed to save video to MinIO: ", e);
         }
     }
 
@@ -201,9 +223,10 @@ public class FaceStorageService {
                             .userMetadata(metadata) // 重点：将数据作为元数据存入
                             .build());
 
-            log.info("🏠 图片与元数据已成功存入 MinIO [ID: {}, 位置: {}]", uuid, message.getLocation());
+            log.info("Image and metadata successfully saved to MinIO [ID: {}, Location: {}]", uuid,
+                    message.getLocation());
         } catch (Exception e) {
-            log.error("❌ 存入 MinIO 失败: ", e);
+            log.error("Failed to save to MinIO: ", e);
         }
 
         // 1.1 注册位置到 places bucket
@@ -230,11 +253,11 @@ public class FaceStorageService {
                                     .object(location)
                                     .stream(new ByteArrayInputStream(new byte[0]), 0, -1)
                                     .build());
-                    log.info("📍 已注册新地点: {}", location);
+                    log.info("Registered new location: {}", location);
                 }
             }
         } catch (Exception e) {
-            log.warn("⚠️ 注册地点失败 {}: {}", location, e.getMessage());
+            log.warn("Failed to register location {}: {}", location, e.getMessage());
         }
     }
 
@@ -252,15 +275,20 @@ public class FaceStorageService {
             fields.add(new io.milvus.param.dml.InsertParam.Field("face_id", ids));
             fields.add(new io.milvus.param.dml.InsertParam.Field("vector", vectors));
 
-            milvusClient.insert(
+            io.milvus.param.R<?> response = milvusClient.insert(
                     io.milvus.param.dml.InsertParam.newBuilder()
                             .withCollectionName(collectionName)
                             .withFields(fields)
                             .build());
 
-            log.info("🧬 特征向量已成功存入 Milvus [ID: {}, 维度: {}]", uuid, message.getVector().size());
+            if (response.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                log.error("Failed to insert vector into Milvus: {}", response.getMessage());
+            } else {
+                log.info("Feature vector successfully saved to Milvus [ID: {}, Dimension: {}]", uuid,
+                        message.getVector().size());
+            }
         } catch (Exception e) {
-            log.error("❌ 存入 Milvus 失败: ", e);
+            log.error("Exception during Milvus insertion: ", e);
         }
     }
 }

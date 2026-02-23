@@ -86,7 +86,6 @@ class FaceDetector:
                      save_result: bool = False,
                      output_path: Optional[str] = None,
                      save_unique_faces: bool = True,
-                     similarity_threshold: float = 0.6,
                      display: bool = True,
                      feature_extractor_callback: Optional[callable] = None,
                      video_id: Optional[str] = None) -> Dict:
@@ -107,6 +106,7 @@ class FaceDetector:
         
         # 核心去重数据
         processed_track_ids = set()
+        capturing_candidates = {} # 暂存候选抓拍 (ID -> {best_conf, best_frame, best_bbox, frames_seen})
         known_faces_data = [] 
         
         # 标准化输出目录：始终保存在 algorithms/output/images (如用户要求)
@@ -126,6 +126,8 @@ class FaceDetector:
                 frame = result.orig_img
                 boxes = result.boxes
                 
+                # 定义这一帧看到的 ID 集合，用于后续判断哪些 ID 消失了
+                current_frame_ids = set()
                 current_frame_faces = []
                 
                 # 如果检测并追踪到了物体
@@ -137,77 +139,76 @@ class FaceDetector:
                     for i, track_id in enumerate(ids):
                         bbox = coords[i]
                         conf = confs[i]
-                        
                         is_new_person = False
                         
-                        # --- 核心去重逻辑 ---
-                        # A. 首先检查轨迹 ID 是否已经处理过图片保存
-                        if track_id not in processed_track_ids:
-                            
-                            # 获取当前脸部图像
-                            face_img = utils.crop_face(frame, bbox)
-                            embedding = utils.get_face_embedding(face_img)
-                            
-                            # B. 其次通过相似度检查是否为“已知人脸”（即便 ID 变了）
-                            is_duplicate = False
-                            best_match_id = -1
-                            max_sim = 0
-                            
-                            for known in known_faces_data:
-                                sim = utils.calculate_similarity(embedding, known['embedding'])
-                                if sim > max_sim:
-                                    max_sim = sim
-                                    best_match_id = known['id']
-                                
-                                if sim > similarity_threshold:
-                                    is_duplicate = True
-                                    # 将当前 ID 映射到已知人脸，防止后续帧重复计算
-                                    processed_track_ids.add(track_id)
-                                    break
-                            
-                            if is_duplicate:
-                                print(f"⏭️  跳过 ID: {track_id} (与 ID: {best_match_id} 相似度 {max_sim:.2f} > {similarity_threshold:.2f})")
-                            
-                            # C. 如果确实是新面孔，则保存
-                            if not is_duplicate:
-                                is_new_person = True
-                                if save_unique_faces:
-                                    # 使用 hierarchical 命名: video_N_face_M.jpg
-                                    save_path = utils.save_faces(
-                                        frame, 
-                                        [{'bbox': bbox}], 
-                                        images_dir, 
-                                        video_id=current_video_id, 
-                                        face_id=face_counter
-                                    )[0]
-                                                                       # 如果有特征提取回调，执行提取
-                                    if feature_extractor_callback:
-                                        feature_extractor_callback(face_img, save_path, video_id=video_id)
-                                        
-                                    known_faces_data.append({
-                                        'id': track_id,
-                                        'embedding': embedding,
-                                        'path': save_path
-                                    })
-                                    print(f"✨ 识别到新面孔! [ID: {track_id}] 已保存图片: {Path(save_path).name}")
-                                    face_counter += 1
-                                
-                                # 标记此 ID 的提取任务已完成
-                                processed_track_ids.add(track_id)
+                        # --- 核心逻辑：全局最优抓拍 (Global-Best Capture) ---
+                        # 记录当前帧看到的所有 ID
+                        current_frame_ids.add(track_id)
                         
+                        # 只要是没彻底处理完的新 ID，就尝试在缓冲区中寻找“绝对最美瞬间”
+                        if track_id not in processed_track_ids:
+                            # 如果该 ID 不在候选区，初始化
+                            if track_id not in capturing_candidates:
+                                capturing_candidates[track_id] = {
+                                    'best_conf': conf,
+                                    'best_frame': frame.copy(),
+                                    'best_bbox': bbox,
+                                    'last_seen': total_frames
+                                }
+                            else:
+                                # 持续更新“最高置信度”记录
+                                cand = capturing_candidates[track_id]
+                                cand['last_seen'] = total_frames
+                                if conf > cand['best_conf']:
+                                    cand['best_conf'] = conf
+                                    cand['best_frame'] = frame.copy()
+                                    cand['best_bbox'] = bbox
+
+                        # 填充当前帧的人脸信息用于展示
                         current_frame_faces.append({
                             'bbox': bbox,
                             'id': track_id,
-                            'status': 'NEW' if is_new_person else 'TRACKING',
+                            'status': 'TRACKING', # 全局最优模式下，我们不再实时标注 NEW，而是统一为追踪
                             'conf': conf
                         })
+
+                # --- 动态收网：判断哪些轨迹已经消失 ---
+                # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，可以抓拍了
+                track_ids_to_commit = []
+                for tid, cand in capturing_candidates.items():
+                    # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1 秒)
+                    if tid not in current_frame_ids and (total_frames - cand['last_seen']) > 30:
+                        track_ids_to_commit.append(tid)
+
+                for tid in track_ids_to_commit:
+                    cand = capturing_candidates[tid]
+                    best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
+                    
+                    if save_unique_faces:
+                        save_paths = utils.save_faces(
+                            cand['best_frame'], 
+                            [{'bbox': cand['best_bbox']}], 
+                            images_dir, 
+                            video_id=current_video_id, 
+                            face_id=face_counter
+                        )
+                        if save_paths:
+                            save_path = save_paths[0]
+                            if feature_extractor_callback:
+                                feature_extractor_callback(best_face_img, save_path, video_id=video_id)
+                            known_faces_data.append({'id': tid})
+                            print(f"🎬 轨迹结束！已选出全局最优瞬间 [ID: {tid}] (最高置信度: {cand['best_conf']:.2f})")
+                            face_counter += 1
+                    
+                    processed_track_ids.add(tid)
+                    del capturing_candidates[tid]
                 
                 # --- 可视化 (绘制结果) ---
                 annotated_frame = frame.copy()
                 for face in current_frame_faces:
                     x1, y1, x2, y2 = face['bbox']
-                    # 新发现的人用绿色框，追踪中的人用蓝色框
-                    color = (0, 255, 0) if face['status'] == 'NEW' else (255, 100, 0)
+                    # 统一使用蓝色框表示正在追踪
+                    color = (255, 100, 0)
                     cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
                     label = f"ID:{face['id']} {face['conf']:.2f}"
                     cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
@@ -232,6 +233,28 @@ class FaceDetector:
                     
                 if total_frames % 50 == 0:
                     print(f"处理中: 第 {total_frames} 帧 | 已捕获独特人脸: {len(known_faces_data)}")
+            
+            # --- 最终清理：如果视频结束时还有由于帧数不足没来得及抓拍的候选人，现在强制抓拍 ---
+            for track_id, cand in capturing_candidates.items():
+                if track_id not in processed_track_ids:
+                    best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
+                    if save_unique_faces:
+                        save_paths = utils.save_faces(
+                            cand['best_frame'], 
+                            [{'bbox': cand['best_bbox']}], 
+                            images_dir, 
+                            video_id=current_video_id, 
+                            face_id=face_counter
+                        )
+                        if save_paths:
+                            save_path = save_paths[0]
+                            if feature_extractor_callback:
+                                feature_extractor_callback(best_face_img, save_path, video_id=video_id)
+                            known_faces_data.append({'id': track_id})
+                            print(f"🏁 视频结束补抓: [ID: {track_id}] (最高置信度: {cand['best_conf']:.2f})")
+                            face_counter += 1
+                    processed_track_ids.add(track_id)
+            capturing_candidates.clear()
                     
         finally:
             if display:
