@@ -88,7 +88,8 @@ class FaceDetector:
                      save_unique_faces: bool = True,
                      similarity_threshold: float = 0.6,
                      display: bool = True,
-                     feature_extractor_callback: Optional[callable] = None) -> Dict:
+                     feature_extractor_callback: Optional[callable] = None,
+                     video_id: Optional[str] = None) -> Dict:
         """
         针对视频流的检测、追踪与去重
         """
@@ -179,10 +180,9 @@ class FaceDetector:
                                         video_id=current_video_id, 
                                         face_id=face_counter
                                     )[0]
-                                    
-                                    # 如果有特征提取回调，执行提取
+                                                                       # 如果有特征提取回调，执行提取
                                     if feature_extractor_callback:
-                                        feature_extractor_callback(face_img, save_path)
+                                        feature_extractor_callback(face_img, save_path, video_id=video_id)
                                         
                                     known_faces_data.append({
                                         'id': track_id,
@@ -243,5 +243,6 @@ class FaceDetector:
         return {
             'total_frames': total_frames,
             'unique_faces_found': len(known_faces_data),
-            'output_dir': images_dir
+            'output_dir': images_dir,
+            'output_path': output_path
         }

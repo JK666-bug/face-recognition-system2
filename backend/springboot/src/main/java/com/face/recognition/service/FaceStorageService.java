@@ -24,6 +24,12 @@ public class FaceStorageService {
     @Value("${spring.minio.bucketName}")
     private String bucketName;
 
+    @Value("${spring.minio.placesBucketName}")
+    private String placesBucketName;
+
+    @Value("${spring.minio.videoBucketName:videos}")
+    private String videoBucketName;
+
     @Value("${spring.milvus.collectionName}")
     private String collectionName;
 
@@ -34,10 +40,24 @@ public class FaceStorageService {
             boolean found = minioClient.bucketExists(io.minio.BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
                 minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(bucketName).build());
-                log.info("📁 MinIO Bucket '{}' 不存在，已自动创建。", bucketName);
+                log.info("📁 MinIO Bucket '{}' 已创建。", bucketName);
+            }
+
+            boolean placesFound = minioClient
+                    .bucketExists(io.minio.BucketExistsArgs.builder().bucket(placesBucketName).build());
+            if (!placesFound) {
+                minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(placesBucketName).build());
+                log.info("📍 MinIO Places Bucket '{}' 已创建。", placesBucketName);
+            }
+
+            boolean videoFound = minioClient
+                    .bucketExists(io.minio.BucketExistsArgs.builder().bucket(videoBucketName).build());
+            if (!videoFound) {
+                minioClient.makeBucket(io.minio.MakeBucketArgs.builder().bucket(videoBucketName).build());
+                log.info("🎬 MinIO Video Bucket '{}' 已创建。", videoBucketName);
             }
         } catch (Exception e) {
-            log.error("❌ 初始化 MinIO Bucket 失败: ", e);
+            log.error("❌ 初始化 MinIO Buckets 失败: ", e);
         }
 
         // 2. 初始化 Milvus Collection
@@ -89,7 +109,7 @@ public class FaceStorageService {
                                 .withCollectionName(collectionName)
                                 .withFieldName("vector")
                                 .withIndexType(io.milvus.param.IndexType.IVF_FLAT)
-                                .withMetricType(io.milvus.param.MetricType.L2)
+                                .withMetricType(io.milvus.param.MetricType.COSINE)
                                 .withExtraParam("{\"nlist\":1024}")
                                 .build());
 
@@ -111,14 +131,50 @@ public class FaceStorageService {
      * @param message 从 MQ 接收到的原始数据
      */
     public void saveFaceData(FaceDataMessage message) {
+        // 根据消息类型分发处理
+        if ("VIDEO".equalsIgnoreCase(message.getType())) {
+            handleVideoData(message);
+        } else {
+            // 默认为 FACE 类型或旧版本兼容
+            handleFaceData(message);
+        }
+    }
+
+    private void handleFaceData(FaceDataMessage message) {
         String uuid = UUID.randomUUID().toString();
-        log.info("开始处理人脸数据，分配 ID: {}", uuid);
+        log.info("开始处理 [人脸] 数据，分配 ID: {}", uuid);
 
         // 1. 保存到对象数据库 (使用 MinIO)
         saveToObjectDatabase(uuid, message);
 
         // 2. 保存到向量数据库 (使用 Milvus)
         saveToVectorDatabase(uuid, message);
+    }
+
+    private void handleVideoData(FaceDataMessage message) {
+        if (message.getVideo_id() == null || message.getVideo_base64() == null) {
+            log.warn("⚠️ 收到无效的视频消息: video_id 或 video_base64 为空");
+            return;
+        }
+
+        try {
+            log.info("🎞️  正在处理 [视频] 数据通过 MQ: {}", message.getVideo_id());
+            // Base64 解码视频文件
+            byte[] videoBytes = Base64.getDecoder().decode(message.getVideo_base64());
+
+            // 存入 MinIO 的视频桶
+            minioClient.putObject(
+                    PutObjectArgs.builder()
+                            .bucket(videoBucketName)
+                            .object(message.getVideo_id())
+                            .stream(new ByteArrayInputStream(videoBytes), videoBytes.length, -1)
+                            .contentType("video/mp4")
+                            .build());
+
+            log.info("🎬 视频已从 MQ 传输并存入 MinIO: {}", message.getVideo_id());
+        } catch (Exception e) {
+            log.error("❌ 存入视频到 MinIO 失败: ", e);
+        }
     }
 
     private void saveToObjectDatabase(String uuid, FaceDataMessage message) {
@@ -131,6 +187,9 @@ public class FaceStorageService {
             java.util.Map<String, String> metadata = new java.util.HashMap<>();
             metadata.put("location", message.getLocation());
             metadata.put("timestamp", message.getTimestamp());
+            if (message.getVideo_id() != null) {
+                metadata.put("video_id", message.getVideo_id());
+            }
 
             // 存入 MinIO
             minioClient.putObject(
@@ -145,6 +204,37 @@ public class FaceStorageService {
             log.info("🏠 图片与元数据已成功存入 MinIO [ID: {}, 位置: {}]", uuid, message.getLocation());
         } catch (Exception e) {
             log.error("❌ 存入 MinIO 失败: ", e);
+        }
+
+        // 1.1 注册位置到 places bucket
+        registerLocation(message.getLocation());
+    }
+
+    private void registerLocation(String location) {
+        if (location == null || location.isEmpty())
+            return;
+        try {
+            // 检查位置标记是否存在 (以地名为对象名，0字节内容)
+            try {
+                minioClient.statObject(
+                        io.minio.StatObjectArgs.builder()
+                                .bucket(placesBucketName)
+                                .object(location)
+                                .build());
+            } catch (io.minio.errors.ErrorResponseException e) {
+                if ("NoSuchKey".equals(e.errorResponse().code())) {
+                    // 不存在则创建
+                    minioClient.putObject(
+                            PutObjectArgs.builder()
+                                    .bucket(placesBucketName)
+                                    .object(location)
+                                    .stream(new ByteArrayInputStream(new byte[0]), 0, -1)
+                                    .build());
+                    log.info("📍 已注册新地点: {}", location);
+                }
+            }
+        } catch (Exception e) {
+            log.warn("⚠️ 注册地点失败 {}: {}", location, e.getMessage());
         }
     }
 
