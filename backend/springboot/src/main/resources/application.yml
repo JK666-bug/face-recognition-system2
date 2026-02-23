@@ -13,6 +13,8 @@ spring:
         acknowledge-mode: auto
         concurrency: 1
         max-concurrency: 5
+        # 增加最大消息限制为 50MB (默认是比较小的)
+        max-receive-size: 52428800
 
   # MinIO 配置 (对象存储)
   minio:
@@ -20,6 +22,7 @@ spring:
     accessKey: minioadmin
     secretKey: minioadmin
     bucketName: faces
+    placesBucketName: places
 
   # Milvus 配置 (向量数据库)
   milvus:

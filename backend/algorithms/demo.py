@@ -9,6 +9,8 @@ import sys
 from pathlib import Path
 from face_detection import FaceDetector
 from feature_extraction import FaceFeatureExtractor
+import uuid
+# from minio_uploader import uploader # 不再直接上传，统一走 MQ
 
 
 def main():
@@ -43,7 +45,10 @@ def main():
     # 初始化特征提取器
     extractor = FaceFeatureExtractor(model_name="Facenet512")
     
-    def print_features_callback(face_img, image_path):
+    # 生成当前视频练习的唯一 ID
+    current_video_session_id = str(uuid.uuid4())[:8] # 取前8位作为 ID
+    
+    def print_features_callback(face_img, image_path, video_id=None):
         """抓拍新面孔后的回调：提取并打印特征，并推送到后端"""
         print(f"🧬  正在为抓拍图片提取特征: {Path(image_path).name}")
         # 传递图片数组 face_img 避开路径中的中文问题
@@ -51,10 +56,8 @@ def main():
         if embedding:
             # 1. 打印演示
             print(f"✅  特征提取成功! 维度: {len(embedding)}")
-            print(f"📊  特征向量 (前5位): {embedding[:5]} ...")
-            
             # 2. 推送到后端 MQ
-            pusher.push_face_data(embedding, face_img, location=args.location)
+            pusher.push_face_data(embedding, face_img, location=args.location, video_id=video_id)
         else:
             print("⚠️  特征提取未能成功。")
 
@@ -82,12 +85,13 @@ def main():
         
         stats = detector.detect_video(
             source=source,
-            save_result=args.save,
+            save_result=args.save or True, # 强制开启保存视频以供回放
             output_path=args.output,
             save_unique_faces=not args.no_save_faces,
             similarity_threshold=args.sim,
             display=not args.no_display,
-            feature_extractor_callback=print_features_callback
+            feature_extractor_callback=print_features_callback,
+            video_id=f"{current_video_session_id}.mp4"
         )
         
         print("\n" + "="*55)
@@ -96,6 +100,12 @@ def main():
         print(f"👥 独特人物识别总数: {stats['unique_faces_found']}")
         if not args.no_save_faces:
             print(f"🖼️  所有人脸抓拍照已保存至: {stats['output_dir']}")
+        
+        # --- 自动通过 MQ 推送视频文件 ---
+        if 'output_path' in stats and os.path.exists(stats['output_path']):
+             print(f"📤 正在通过消息队列推送视频回放...")
+             pusher.push_video_data(stats['output_path'], video_id=f"{current_video_session_id}.mp4")
+             
         print("="*55 + "\n")
 
 

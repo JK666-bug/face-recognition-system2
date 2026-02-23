@@ -30,7 +30,7 @@ class FaceFeatureExtractor:
             model_name: 模型名称 (默认 Facenet512 以获得 512 维向量)
         """
         self.model_name = model_name
-        print(f"🧬  初始化特征提取模型: {model_name}")
+        print(f"INFO: Initializing feature extraction model: {model_name}")
         # 这里不预加载，在第一次运行时会自动加载
 
     def extract_features(self, image_source: Union[str, np.ndarray]) -> Optional[List[float]]:
@@ -58,7 +58,7 @@ class FaceFeatureExtractor:
                 embedding = embeddings[0]["embedding"]
                 return embedding
         except Exception as e:
-            print(f"❌  特征提取失败: {e}")
+            print(f"ERROR: Feature extraction failed: {e}")
             return None
         return None
 
