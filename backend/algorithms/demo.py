@@ -18,8 +18,7 @@ def main():
     
     parser.add_argument('--source', type=str, default='0', help='输入源: 0 (摄像头) 或 视频文件路径')
     parser.add_argument('--model', type=str, default=None, help='专用面部检测模型路径 (默认自动查找)')
-    parser.add_argument('--conf', type=float, default=0.5, help='检测置信度 (默认 0.5)')
-    parser.add_argument('--sim', type=float, default=0.9, help='去重相似度阈值 (默认 0.9, 越高越不易漏抓)')
+    parser.add_argument('--conf', type=float, default=0.65, help='检测置信度 (默认 0.5)')
     parser.add_argument('--save', action='store_true', help='是否保存带有检测框的视频结果')
     parser.add_argument('--output', type=str, default=None, help='输出视频路径')
     parser.add_argument('--no-display', action='store_true', help='隐藏实时窗口')
@@ -78,9 +77,8 @@ def main():
             
         print(f"✅ 完成！在图像中识别到 {len(faces)} 个人脸。")
     else:
-        # 视频或摄像头模式 (含追踪与去重)
+        # 视频或摄像头模式 (含追踪)
         print(f"🎬 视频源: {source}")
-        print(f"⚙️  去重相似度阈值: {args.sim}")
         print(f"📸 自动抓拍保存: {'开启' if not args.no_save_faces else '关闭'}")
         
         stats = detector.detect_video(
@@ -88,7 +86,6 @@ def main():
             save_result=args.save or True, # 强制开启保存视频以供回放
             output_path=args.output,
             save_unique_faces=not args.no_save_faces,
-            similarity_threshold=args.sim,
             display=not args.no_display,
             feature_extractor_callback=print_features_callback,
             video_id=f"{current_video_session_id}.mp4"

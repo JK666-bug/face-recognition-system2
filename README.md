@@ -108,3 +108,5 @@ python backend\algorithms\demo.py --source backend\algorithms\media\face3.mp4 --
 用户名：留空（不需要输入）
 密　码：留空（不需要输入）
 Milvus 地址：localhost:19530
+
+4. 查看端口状态：netstat -ano | findstr :8080
