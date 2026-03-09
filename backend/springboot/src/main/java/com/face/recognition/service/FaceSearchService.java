@@ -42,6 +42,9 @@ public class FaceSearchService {
     @Value("${spring.minio.bucketName}")
     private String bucketName;
 
+    @Value("${spring.milvus.searchThreshold:0.90}")
+    private float searchThreshold;
+
     @Value("${spring.minio.videoBucketName:videos}")
     private String videoBucketName;
 
@@ -130,7 +133,7 @@ public class FaceSearchService {
                 .withCollectionName(collectionName)
                 .withMetricType(io.milvus.param.MetricType.COSINE)
                 .withOutFields(List.of("face_id"))
-                .withTopK(5)
+                .withTopK(50)
                 .withFloatVectors(searchVectors)
                 .withVectorFieldName("vector")
                 .withParams("{\"nprobe\":10}")
@@ -149,8 +152,8 @@ public class FaceSearchService {
         List<io.milvus.response.SearchResultsWrapper.IDScore> idScores = wrapper.getIDScore(0);
 
         for (io.milvus.response.SearchResultsWrapper.IDScore idScore : idScores) {
-            // 过滤逻辑：只保留相似度大于等于 0.9 的结果
-            if (idScore.getScore() >= 0.9f) {
+            // 过滤逻辑：使用配置的相似度阈值
+            if (idScore.getScore() >= searchThreshold) {
                 matches.add(SearchMatchDTO.builder()
                         .id(idScore.getStrID())
                         .score(idScore.getScore())

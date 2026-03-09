@@ -20,7 +20,7 @@ class FaceDetector:
     def __init__(self, 
                  model_path: Optional[str] = None,
                  confidence_threshold: float = 0.5,
-                 device: str = 'cpu'):
+                 device: Optional[str] = None):
         """
         初始化检测器
         """
@@ -29,6 +29,16 @@ class FaceDetector:
         
         # 获取当前脚本的绝对路径，确保相对路径在此基础上计算
         self.base_dir = Path(__file__).resolve().parent
+
+        # 自动探测设备
+        if device is None:
+            try:
+                import torch
+                self.device = '0' if torch.cuda.is_available() else 'cpu'
+            except:
+                self.device = 'cpu'
+        else:
+            self.device = device
         
         if model_path is None:
             model_path = str(self.base_dir / "models" / "yolov8n-face.pt")
@@ -40,11 +50,12 @@ class FaceDetector:
             model_path = "yolov8n.pt" 
             print(f"🕒 暂时使用通用模型: {model_path}")
         
-        print(f"载入 YOLOv8 模型: {model_path}")
+        print(f"载入模型: {model_path} (Device: {self.device})")
         self.model = YOLO(model_path)
         
-        if device == 'cuda':
-            self.model.to('cuda')
+        # 统一移动模型到指定设备
+        if self.device != 'cpu':
+             self.model.to('cuda' if self.device == '0' else self.device)
         
         self.is_face_model = 'face' in str(model_path).lower()
         print(f"检测器已就绪。模式: {'专用人脸检测' if self.is_face_model else '通用物体检测'}")
@@ -96,6 +107,7 @@ class FaceDetector:
         results = self.model.track(
             source=source,
             conf=self.confidence_threshold,
+            device=self.device, # 使用检测到的设备 (CPU 或 GPU)
             stream=True,
             persist=True,  
             verbose=False
@@ -118,8 +130,12 @@ class FaceDetector:
         current_video_id = utils.get_next_video_id(images_dir)
         face_counter = 1
 
-        print(f"🎥 正从 {source} 开始检测与追踪...")
+        print(f"🎥 正从 {source} 开始检测与追踪... (按 'q' 键退出)")
         
+        window_name = 'Face Tracking & Deduplication (Unified Demo)'
+        if display:
+            cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
+
         try:
             for result in results:
                 total_frames += 1
@@ -215,7 +231,8 @@ class FaceDetector:
                 
                 # 显示
                 if display:
-                    cv2.imshow('Face Tracking & Deduplication (Unified Demo)', annotated_frame)
+                    # 如果帧分辨率特别大 (比如 4K)，适当调整窗口显示
+                    cv2.imshow(window_name, annotated_frame)
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         break
                 

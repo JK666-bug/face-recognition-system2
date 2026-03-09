@@ -2,6 +2,11 @@ spring:
   application:
     name: face-recognition-backend
   
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  
   # RabbitMQ 配置
   rabbitmq:
     host: localhost
@@ -29,6 +34,7 @@ spring:
     host: localhost
     port: 19530
     collectionName: face_embeddings
+    searchThreshold: 0.8
 
 logging:
   level:
