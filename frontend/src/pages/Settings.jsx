@@ -15,8 +15,11 @@ const Settings = () => {
 
     const fetchSettings = async () => {
         setLoading(true);
+        const token = localStorage.getItem('token');
         try {
-            const response = await fetch('http://localhost:8080/api/settings');
+            const response = await fetch('http://localhost:8080/api/settings', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             const data = await response.json();
             setSettings(data);
         } catch (error) {
@@ -29,10 +32,14 @@ const Settings = () => {
 
     const handleSave = async () => {
         setLoading(true);
+        const token = localStorage.getItem('token');
         try {
             const response = await fetch('http://localhost:8080/api/settings', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
                 body: JSON.stringify(settings)
             });
             if (response.ok) {

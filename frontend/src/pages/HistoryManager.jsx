@@ -14,8 +14,11 @@ const HistoryManager = () => {
 
     const fetchRecords = async () => {
         setLoading(true);
+        const token = localStorage.getItem('token');
         try {
-            const response = await fetch('http://localhost:8080/api/management/captures');
+            const response = await fetch('http://localhost:8080/api/management/captures', {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
             if (response.ok) {
                 const data = await response.json();
                 setRecords(data);
@@ -31,9 +34,11 @@ const HistoryManager = () => {
         if (!window.confirm('Are you sure you want to permanently delete this capture record from both MinIO and Milvus?')) return;
         
         setDeletingId(id);
+        const token = localStorage.getItem('token');
         try {
             const response = await fetch(`http://localhost:8080/api/management/captures/${id}`, {
-                method: 'DELETE'
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
             });
             if (response.ok) {
                 setRecords(records.filter(r => r.id !== id));
@@ -54,8 +59,10 @@ const HistoryManager = () => {
     const filteredRecords = useMemo(() => {
         return records.filter(r => {
             const matchLoc = filterLocation === 'all' || r.location === filterLocation;
-            const matchSearch = r.id.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                               (r.timestamp && r.timestamp.includes(searchTerm));
+            const searchLower = searchTerm.toLowerCase();
+            const matchSearch = r.id.toLowerCase().includes(searchLower) || 
+                               (r.timestamp && r.timestamp.toLowerCase().includes(searchLower)) ||
+                               (r.location && r.location.toLowerCase().includes(searchLower));
             return matchLoc && matchSearch;
         });
     }, [records, filterLocation, searchTerm]);
@@ -64,7 +71,7 @@ const HistoryManager = () => {
         <div style={{ padding: '30px' }}>
             <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
-                    <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Event Discovery & Management</h2>
+                    <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Dataset Explorer</h2>
                     <p style={{ color: '#64748b' }}>Search, filter and manage historical snapshots in vector and object storage.</p>
                 </div>
                 <button 
@@ -90,7 +97,7 @@ const HistoryManager = () => {
                     <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
                     <input 
                         type="text" 
-                        placeholder="Search by ID or Timestamp..." 
+                        placeholder="Search by ID, Time or Location..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         style={{ 
@@ -99,7 +106,7 @@ const HistoryManager = () => {
                         }}
                     />
                 </div>
-                <div style={{ width: '200px', position: 'relative' }}>
+                <div style={{ width: '220px', position: 'relative' }}>
                     <Filter size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
                     <select 
                         value={filterLocation}

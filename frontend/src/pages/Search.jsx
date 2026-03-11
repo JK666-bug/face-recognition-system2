@@ -68,9 +68,11 @@ const Search = () => {
         const formData = new FormData();
         formData.append('file', selectedFile);
 
+        const token = localStorage.getItem('token');
         try {
             const response = await fetch('http://localhost:8080/api/face/search', {
                 method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}` },
                 body: formData,
             });
 
@@ -258,7 +260,8 @@ const Search = () => {
                                                 <YAxis 
                                                     dataKey="name" 
                                                     type="category" 
-                                                    width={120} 
+                                                    width={140} 
+                                                    interval={0}
                                                     style={{ fontSize: '11px', fill: '#94a3b8' }} 
                                                     tick={{ fill: '#94a3b8' }}
                                                 />
@@ -313,7 +316,7 @@ const Search = () => {
 
                     {filteredResults.length > 0 ? (
                         <div className="timeline">
-                            <h3 className="timeline-title">Historical Evidence Flow</h3>
+                            <h3 className="timeline-title">History Flow</h3>
                             {filteredResults.map((item, index) => (
                                 <div className="timeline-item" key={item.id}>
                                     <div className="timeline-marker"></div>

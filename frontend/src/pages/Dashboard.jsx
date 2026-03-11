@@ -5,15 +5,18 @@ import {
     Users,
     History,
     Settings,
+    Settings as SettingsIcon,
     LogOut,
     Search as SearchIcon,
     Shield,
     Activity,
-    MapPin
+    MapPin,
+    User as UserIcon
 } from 'lucide-react';
 import Search from './Search';
 import SettingsPage from './Settings';
 import HistoryManager from './HistoryManager';
+import AccessControl from './AccessControl';
 
 const DashboardContent = () => {
     const [stats, setStats] = useState({
@@ -28,8 +31,11 @@ const DashboardContent = () => {
 
     useEffect(() => {
         const fetchStats = async () => {
+            const token = localStorage.getItem('token');
             try {
-                const response = await fetch('http://localhost:8080/api/stats');
+                const response = await fetch('http://localhost:8080/api/stats', {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
                 const data = await response.json();
                 setStats({
                     capturesToday: (data.capturesToday ?? 0).toLocaleString(),
@@ -126,53 +132,56 @@ const DashboardContent = () => {
                 ))}
             </div>
 
-            {stats.recentCaptures.length > 0 && (
-                <>
-                    <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Live Intelligence Stream (Last 5m)</h4>
-                    <div style={{
-                        background: 'rgba(255, 255, 255, 0.02)',
-                        borderRadius: '24px',
-                        padding: '24px',
-                        border: '1px solid rgba(255, 255, 255, 0.05)',
-                        overflow: 'hidden',
-                        marginBottom: '20px'
-                    }}>
-                        <div style={{ 
-                            display: 'flex', 
-                            gap: '20px', 
-                            overflowX: 'auto', 
-                            paddingBottom: '12px',
-                            scrollbarWidth: 'thin'
-                        }}>
-                            {stats.recentCaptures.map((cap, i) => (
-                                <div key={i} style={{
-                                    minWidth: '160px',
-                                    background: 'rgba(255, 255, 255, 0.03)',
-                                    borderRadius: '18px',
-                                    overflow: 'hidden',
-                                    border: '1px solid rgba(255, 255, 255, 0.05)',
-                                    transition: 'transform 0.3s'
-                                }}>
-                                    <img 
-                                        src={`data:image/jpeg;base64,${cap.imageBase64}`} 
-                                        style={{ width: '100%', height: '160px', objectFit: 'cover' }} 
-                                        alt="Capture" 
-                                    />
-                                    <div style={{ padding: '12px' }}>
-                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00d2ff', fontSize: '11px', fontWeight: 'bold' }}>
-                                            <MapPin size={12} />
-                                            {cap.location}
-                                        </div>
-                                        <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '4px' }}>
-                                            {cap.timestamp && cap.timestamp.includes('T') ? cap.timestamp.split('T')[1].substring(0, 8) : cap.timestamp}
-                                        </div>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Latest Intelligence Activity</h4>
+            <div style={{
+                background: 'rgba(255, 255, 255, 0.02)',
+                borderRadius: '24px',
+                padding: '24px',
+                border: '1px solid rgba(255, 255, 255, 0.05)',
+                overflow: 'hidden',
+                marginBottom: '20px'
+            }}>
+                <div style={{ 
+                    display: 'flex', 
+                    gap: '20px', 
+                    overflowX: 'auto', 
+                    paddingBottom: '12px',
+                    scrollbarWidth: 'thin'
+                }}>
+                    {stats.recentCaptures.length > 0 ? (
+                        stats.recentCaptures.map((cap, i) => (
+                            <div key={i} style={{
+                                minWidth: '160px',
+                                background: 'rgba(255, 255, 255, 0.03)',
+                                borderRadius: '18px',
+                                overflow: 'hidden',
+                                border: '1px solid rgba(255, 255, 255, 0.05)',
+                                transition: 'transform 0.3s'
+                            }}>
+                                <img 
+                                    src={`data:image/jpeg;base64,${cap.imageBase64}`} 
+                                    style={{ width: '100%', height: '160px', objectFit: 'cover' }} 
+                                    alt="Capture" 
+                                />
+                                <div style={{ padding: '12px' }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00d2ff', fontSize: '11px', fontWeight: 'bold' }}>
+                                        <MapPin size={12} />
+                                        {cap.location}
+                                    </div>
+                                    <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '4px' }}>
+                                        {cap.timestamp && cap.timestamp.includes('T') ? cap.timestamp.split('T')[1].substring(0, 8) : cap.timestamp}
                                     </div>
                                 </div>
-                            ))}
+                            </div>
+                        ))
+                    ) : (
+                        <div style={{ width: '100%', textAlign: 'center', padding: '40px', color: '#475569', fontSize: '14px' }}>
+                            <div style={{ marginBottom: '10px' }}>No recent activity detected in the last window.</div>
+                            <div style={{ fontSize: '12px', opacity: 0.6 }}>Start the recognition stream to see live results.</div>
                         </div>
-                    </div>
-                </>
-            )}
+                    )}
+                </div>
+            </div>
 
             <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Active Capture Nodes</h4>
             <div style={{
@@ -214,6 +223,21 @@ const DashboardContent = () => {
 const Dashboard = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('overview');
+    const user = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"GUEST","id":"0"}');
+
+    const handleLogout = () => {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        navigate('/login');
+    };
+
+    const navItems = [
+        { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview', visible: true },
+        { id: 'search', icon: SearchIcon, label: 'Trajectory Search', visible: true },
+        { id: 'history', icon: History, label: 'Dataset', visible: user.role === 'SUPER_ADMIN' },
+        { id: 'users', icon: Users, label: 'Access Control', visible: user.role === 'SUPER_ADMIN' },
+        { id: 'settings', icon: Settings, label: 'Settings', visible: user.role === 'SUPER_ADMIN' }
+    ].filter(item => item.visible);
 
     return (
         <div style={{ display: 'flex', minHeight: '100vh', background: '#0f172a', color: 'white', fontFamily: 'Inter, system-ui, sans-serif' }}>
@@ -238,13 +262,7 @@ const Dashboard = () => {
                 </div>
 
                 <nav style={{ flex: 1 }}>
-                    {[
-                        { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview' },
-                        { id: 'search', icon: SearchIcon, label: 'Trajectory Search' },
-                        { id: 'users', icon: Users, label: 'Person Library' },
-                        { id: 'history', icon: History, label: 'Event History' },
-                        { id: 'settings', icon: Settings, label: 'Settings' }
-                    ].map(item => (
+                    {navItems.map(item => (
                         <button
                             key={item.id}
                             onClick={() => setActiveTab(item.id)}
@@ -273,7 +291,7 @@ const Dashboard = () => {
 
                 <div style={{ marginTop: 'auto' }}>
                     <button
-                        onClick={() => navigate('/login')}
+                        onClick={handleLogout}
                         style={{
                             width: '100%',
                             display: 'flex',
@@ -290,7 +308,7 @@ const Dashboard = () => {
                         }}
                     >
                         <LogOut size={20} />
-                        Exit System
+                        End Session
                     </button>
                 </div>
             </div>
@@ -313,13 +331,29 @@ const Dashboard = () => {
                         <h1 style={{ fontSize: '26px', fontWeight: '700', marginBottom: '4px' }}>
                             {activeTab === 'overview' ? 'Command Center' :
                                 activeTab === 'search' ? 'Trajectory Analysis' :
-                                    'System Module'}
+                                    activeTab === 'history' ? 'Dataset Explorer' :
+                                        activeTab === 'users' ? 'Identity Management' :
+                                            'System Configuration'}
                         </h1>
                         <p style={{ color: '#64748b', fontSize: '14px' }}>
                             {activeTab === 'overview' ? 'Real-time intelligence and node health monitoring' :
                                 activeTab === 'search' ? 'Cross-referencing face signatures across distributed nodes' :
-                                    'Module under development'}
+                                    activeTab === 'history' ? 'Reviewing the global capture database' :
+                                        activeTab === 'users' ? 'Managing administrative access and privileges' :
+                                            'Fine-tuning system precision and metadata'}
                         </p>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', padding: '10px 20px', background: 'rgba(255,255,255,0.03)', borderRadius: '16px', border: '1px solid rgba(255,255,255,0.08)' }}>
+                        <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '14px', fontWeight: 'bold' }}>{user.username}</div>
+                            <div style={{ fontSize: '10px', color: '#00d2ff', fontWeight: 'bold' }}>
+                                {user.role === 'SUPER_ADMIN' ? '🛡️ SUPER_ADMIN' : '👤 OPERATOR_ADMIN'} (ID: {user.id})
+                            </div>
+                        </div>
+                        <div style={{ width: '40px', height: '40px', borderRadius: '12px', background: 'rgba(0, 210, 255, 0.1)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#00d2ff' }}>
+                            <UserIcon size={20} />
+                        </div>
                     </div>
                 </header>
 
@@ -330,12 +364,14 @@ const Dashboard = () => {
                         <Search />
                     ) : activeTab === 'history' ? (
                         <HistoryManager />
+                    ) : activeTab === 'users' ? (
+                        <AccessControl />
                     ) : activeTab === 'settings' ? (
                         <SettingsPage />
                     ) : (
                         <div style={{ padding: '80px 40px', textAlign: 'center', color: '#475569' }}>
                             <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'center' }}>
-                                <Settings size={48} style={{ opacity: 0.2 }} />
+                                <SettingsIcon size={48} style={{ opacity: 0.2 }} />
                             </div>
                             <h2 style={{ fontSize: '20px', fontWeight: '600', color: '#94a3b8' }}>Module in Preparation</h2>
                             <p style={{ marginTop: '8px' }}>This feature is scheduled for the next deployment phase.</p>

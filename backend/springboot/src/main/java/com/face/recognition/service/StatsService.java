@@ -104,23 +104,18 @@ public class StatsService {
             Iterable<Result<Item>> objects = minioClient.listObjects(
                     ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
             
-            java.util.List<Item> filteredItems = new java.util.ArrayList<>();
-            java.time.ZonedDateTime fiveMinutesAgo = java.time.ZonedDateTime.now().minusMinutes(5);
-            
+            java.util.List<Item> allItems = new java.util.ArrayList<>();
             for (Result<Item> res : objects) {
-                Item item = res.get();
-                if (item.lastModified().isAfter(fiveMinutesAgo)) {
-                    filteredItems.add(item);
-                }
+                allItems.add(res.get());
             }
             
             // 按最后修改时间倒序排列
-            filteredItems.sort((a, b) -> b.lastModified().compareTo(a.lastModified()));
+            allItems.sort((a, b) -> b.lastModified().compareTo(a.lastModified()));
             
-            // 取前6个
-            int limit = Math.min(filteredItems.size(), 6);
+            // 始终取最新的前6个
+            int limit = Math.min(allItems.size(), 6);
             for (int i = 0; i < limit; i++) {
-                Item item = filteredItems.get(i);
+                Item item = allItems.get(i);
                 try {
                     // 获取元数据和图片内容
                     io.minio.StatObjectResponse stat = minioClient.statObject(
