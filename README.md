@@ -78,6 +78,9 @@ Face-Recognition-System/
 .\.venv\Scripts\Activate.ps1
 
 2.docker
+停止并删除容器，同时删除关联的数据卷 (-v 表示 volumes)
+docker-compose down -v
+
 docker-compose up -d 重建
 docker-compose start 重启
 docker-compose stop
@@ -94,7 +97,7 @@ python backend\algorithms\demo.py --source backend\algorithms\media\face3.mp4 --
 
 
 1. RabbitMQ 账号密码
-用户名：guest
+用户名：
 密　码：guest
 管理后台地址：http://localhost:15672
 
@@ -110,3 +113,4 @@ python backend\algorithms\demo.py --source backend\algorithms\media\face3.mp4 --
 Milvus 地址：localhost:19530
 
 4. 查看端口状态：netstat -ano | findstr :8080
+5. 杀掉8080端口的进程：Stop-Process -Id (Get-NetTCPConnection -LocalPort 8080).OwningProcess -Force

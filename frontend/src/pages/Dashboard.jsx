@@ -8,9 +8,12 @@ import {
     LogOut,
     Search as SearchIcon,
     Shield,
-    Activity
+    Activity,
+    MapPin
 } from 'lucide-react';
 import Search from './Search';
+import SettingsPage from './Settings';
+import HistoryManager from './HistoryManager';
 
 const DashboardContent = () => {
     const [stats, setStats] = useState({
@@ -19,7 +22,8 @@ const DashboardContent = () => {
         milvusStatus: 'Checking...',
         minioStatus: 'Checking...',
         rabbitMQStatus: 'Checking...',
-        activeLocations: []
+        activeLocations: [],
+        recentCaptures: []
     });
 
     useEffect(() => {
@@ -28,12 +32,13 @@ const DashboardContent = () => {
                 const response = await fetch('http://localhost:8080/api/stats');
                 const data = await response.json();
                 setStats({
-                    capturesToday: data.capturesToday.toLocaleString(),
-                    totalFaces: data.totalFaces.toLocaleString(),
-                    milvusStatus: data.milvusStatus,
-                    minioStatus: data.minioStatus,
-                    rabbitMQStatus: data.rabbitMQStatus,
-                    activeLocations: data.activeLocations || []
+                    capturesToday: (data.capturesToday ?? 0).toLocaleString(),
+                    totalFaces: (data.totalFaces ?? 0).toLocaleString(),
+                    milvusStatus: data.milvusStatus || 'Unknown',
+                    minioStatus: data.minioStatus || 'Unknown',
+                    rabbitMQStatus: data.rabbitMQStatus || 'Unknown',
+                    activeLocations: data.activeLocations || [],
+                    recentCaptures: data.recentCaptures || []
                 });
             } catch (error) {
                 console.error('Failed to fetch stats:', error);
@@ -41,7 +46,8 @@ const DashboardContent = () => {
                     ...prev,
                     milvusStatus: 'Offline',
                     minioStatus: 'Offline',
-                    rabbitMQStatus: 'Offline'
+                    rabbitMQStatus: 'Offline',
+                    recentCaptures: []
                 }));
             }
         };
@@ -120,7 +126,55 @@ const DashboardContent = () => {
                 ))}
             </div>
 
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>Active Capture Nodes</h4>
+            {stats.recentCaptures.length > 0 && (
+                <>
+                    <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Live Intelligence Stream (Last 5m)</h4>
+                    <div style={{
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        borderRadius: '24px',
+                        padding: '24px',
+                        border: '1px solid rgba(255, 255, 255, 0.05)',
+                        overflow: 'hidden',
+                        marginBottom: '20px'
+                    }}>
+                        <div style={{ 
+                            display: 'flex', 
+                            gap: '20px', 
+                            overflowX: 'auto', 
+                            paddingBottom: '12px',
+                            scrollbarWidth: 'thin'
+                        }}>
+                            {stats.recentCaptures.map((cap, i) => (
+                                <div key={i} style={{
+                                    minWidth: '160px',
+                                    background: 'rgba(255, 255, 255, 0.03)',
+                                    borderRadius: '18px',
+                                    overflow: 'hidden',
+                                    border: '1px solid rgba(255, 255, 255, 0.05)',
+                                    transition: 'transform 0.3s'
+                                }}>
+                                    <img 
+                                        src={`data:image/jpeg;base64,${cap.imageBase64}`} 
+                                        style={{ width: '100%', height: '160px', objectFit: 'cover' }} 
+                                        alt="Capture" 
+                                    />
+                                    <div style={{ padding: '12px' }}>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#00d2ff', fontSize: '11px', fontWeight: 'bold' }}>
+                                            <MapPin size={12} />
+                                            {cap.location}
+                                        </div>
+                                        <div style={{ color: '#94a3b8', fontSize: '10px', marginTop: '4px' }}>
+                                            {cap.timestamp && cap.timestamp.includes('T') ? cap.timestamp.split('T')[1].substring(0, 8) : cap.timestamp}
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </>
+            )}
+
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Active Capture Nodes</h4>
             <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
                 borderRadius: '24px',
@@ -274,6 +328,10 @@ const Dashboard = () => {
                         <DashboardContent />
                     ) : activeTab === 'search' ? (
                         <Search />
+                    ) : activeTab === 'history' ? (
+                        <HistoryManager />
+                    ) : activeTab === 'settings' ? (
+                        <SettingsPage />
                     ) : (
                         <div style={{ padding: '80px 40px', textAlign: 'center', color: '#475569' }}>
                             <div style={{ marginBottom: '24px', display: 'flex', justifyContent: 'center' }}>

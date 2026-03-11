@@ -50,7 +50,7 @@ public class FaceSearchService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public List<SearchMatchDTO> searchByImage(MultipartFile file) throws Exception {
+    public List<SearchMatchDTO> searchByImage(MultipartFile file, String startTime, String endTime) throws Exception {
         // 1. 保存临时文件
         Path tempFile = Files.createTempFile("search_", ".jpg");
         file.transferTo(tempFile.toFile());
@@ -65,13 +65,20 @@ public class FaceSearchService {
             List<SearchMatchDTO> results = searchInMilvus(embedding);
             log.info("Milvus 搜索完成，找到 {} 个候选结果", results.size());
 
-            // 4. 从 MinIO 补充详细信息
+            // 4. 从 MinIO 补充详细信息并进行初步过滤
+            List<SearchMatchDTO> responseList = new ArrayList<>();
             for (SearchMatchDTO match : results) {
                 populateMetadataFromMinio(match);
+                
+                // 时间过滤逻辑
+                if (isWithinTimeRange(match.getTimestamp(), startTime, endTime)) {
+                    responseList.add(match);
+                }
             }
+            log.info("时间范围过滤后结果数: {}", responseList.size());
 
             // 5. 按照时间排序 (从近到远: 降序)
-            results.sort((a, b) -> {
+            responseList.sort((a, b) -> {
                 if (a.getTimestamp() == null || "Unknown".equals(a.getTimestamp()))
                     return 1;
                 if (b.getTimestamp() == null || "Unknown".equals(b.getTimestamp()))
@@ -79,10 +86,47 @@ public class FaceSearchService {
                 return b.getTimestamp().compareTo(a.getTimestamp());
             });
 
-            return results;
+            return responseList;
         } finally {
             // 清理临时文件
             Files.deleteIfExists(tempFile);
+        }
+    }
+
+    private boolean isWithinTimeRange(String timestamp, String start, String end) {
+        // 如果没有传入过滤条件，默认通过
+        if ((start == null || start.isEmpty()) && (end == null || end.isEmpty())) {
+            return true;
+        }
+        
+        // 如果抓拍时间未知且设置了过滤，则排除
+        if (timestamp == null || "Unknown".equals(timestamp)) {
+            return false;
+        }
+
+        try {
+            // 前端传入格式可以是 "yyyy-MM-dd HH:mm:ss" 或 "yyyy-MM-dd"
+            // Python 端存储格式是 "yyyy-MM-dd HH:mm:ss"
+            // 这里使用字符串直接比较即可 (因为是标准化格式)
+            
+            boolean startOk = true;
+            if (start != null && !start.isEmpty()) {
+                // 如果传入的是日期 YYYY-MM-DD，补全为 YYYY-MM-DD 00:00:00
+                String fullStart = start.length() == 10 ? start + " 00:00:00" : start;
+                startOk = timestamp.compareTo(fullStart) >= 0;
+            }
+
+            boolean endOk = true;
+            if (end != null && !end.isEmpty()) {
+                // 如果传入的是日期 YYYY-MM-DD，补全为 YYYY-MM-DD 23:59:59
+                String fullEnd = end.length() == 10 ? end + " 23:59:59" : end;
+                endOk = timestamp.compareTo(fullEnd) <= 0;
+            }
+
+            return startOk && endOk;
+        } catch (Exception e) {
+            log.warn("Timestamp comparison failed for: {}, error: {}", timestamp, e.getMessage());
+            return false;
         }
     }
 
@@ -126,6 +170,9 @@ public class FaceSearchService {
         return embedding;
     }
 
+    @Autowired
+    private SettingsService settingsService;
+
     private List<SearchMatchDTO> searchInMilvus(List<Float> embedding) {
         List<List<Float>> searchVectors = List.of(embedding);
 
@@ -151,9 +198,10 @@ public class FaceSearchService {
         List<SearchMatchDTO> matches = new ArrayList<>();
         List<io.milvus.response.SearchResultsWrapper.IDScore> idScores = wrapper.getIDScore(0);
 
+        float threshold = settingsService.getSearchThreshold();
         for (io.milvus.response.SearchResultsWrapper.IDScore idScore : idScores) {
-            // 过滤逻辑：使用配置的相似度阈值
-            if (idScore.getScore() >= searchThreshold) {
+            // 过滤逻辑：使用动态配置的相似度阈值
+            if (idScore.getScore() >= threshold) {
                 matches.add(SearchMatchDTO.builder()
                         .id(idScore.getStrID())
                         .score(idScore.getScore())
@@ -172,12 +220,24 @@ public class FaceSearchService {
             StatObjectResponse stat = minioClient.statObject(
                     StatObjectArgs.builder().bucket(bucketName).object(objectName).build());
 
-            Map<String, String> userMetadata = stat.userMetadata();
-            match.setLocation(userMetadata.getOrDefault("location", "Unknown"));
-            match.setTimestamp(userMetadata.getOrDefault("timestamp", "Unknown"));
+            Map<String, String> meta = stat.userMetadata();
+            String location = meta.getOrDefault("location", 
+                              meta.getOrDefault("location".toLowerCase(), 
+                              meta.getOrDefault("x-amz-meta-location", "Unknown")));
+            
+            String timestamp = meta.getOrDefault("timestamp", 
+                               meta.getOrDefault("timestamp".toLowerCase(), 
+                               meta.getOrDefault("x-amz-meta-timestamp", "Unknown")));
+            
+            match.setLocation(location);
+            match.setTimestamp(timestamp);
 
             // 1.1 获取关联视频 ID 并生成预签名 URL
-            String videoId = userMetadata.get("video_id");
+            String videoId = meta.get("video_id");
+            if (videoId == null) {
+                videoId = meta.get("x-amz-meta-video_id");
+            }
+            
             if (videoId != null && !videoId.isEmpty()) {
                 try {
                     String presignedUrl = minioClient.getPresignedObjectUrl(
