@@ -2,6 +2,11 @@ spring:
   application:
     name: face-recognition-backend
   
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  
   # RabbitMQ 配置
   rabbitmq:
     host: localhost
@@ -29,9 +34,26 @@ spring:
     host: localhost
     port: 19530
     collectionName: face_embeddings
+    searchThreshold: 0.65
+  datasource:
+    url: jdbc:mysql://localhost:3306/face_recognition?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+    username: face
+    password: face
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: true
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.MySQLDialect
 
 logging:
   level:
     com.face.recognition: DEBUG
   charset:
     console: UTF-8
+
+jwt:
+  secret: 9a4f4e1ed0fd4db8a679e9a4f4e1ed0fd4db8a679e9a4f4e1ed0fd4db8a679e
+  expiration: 86400000 # 24 hours

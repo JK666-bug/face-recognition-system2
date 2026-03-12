@@ -74,7 +74,25 @@ services:
       - "standalone"
     restart: always
 
+  # ---------------------------------------------------------
+  # 6. MySQL - 业务数据库 (存储用户权限和其他元数据)
+  # ---------------------------------------------------------
+  mysql:
+    image: mysql:8.0
+    container_name: mysql
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: face_recognition
+      MYSQL_USER: face
+      MYSQL_PASSWORD: face
+    volumes:
+      - mysql_data:/var/lib/mysql
+    restart: always
+
 volumes:
   minio_data:
   etcd_data:
   milvus_data:
+  mysql_data:

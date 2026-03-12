@@ -19,10 +19,16 @@ public class FaceSearchController {
     private FaceSearchService faceSearchService;
 
     @PostMapping("/search")
-    public ResponseEntity<List<SearchMatchDTO>> searchFace(@RequestParam("file") MultipartFile file) {
-        log.info("收到人脸搜索请求，文件名: {}, 大小: {} bytes", file.getOriginalFilename(), file.getSize());
+    public ResponseEntity<List<SearchMatchDTO>> searchFace(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(value = "startTime", required = false) String startTime,
+            @RequestParam(value = "endTime", required = false) String endTime) {
+        log.info("收到人脸搜索请求，文件名: {}, 时间范围: [{} - {}]", 
+                file.getOriginalFilename(), 
+                startTime != null ? startTime : "不限", 
+                endTime != null ? endTime : "不限");
         try {
-            List<SearchMatchDTO> results = faceSearchService.searchByImage(file);
+            List<SearchMatchDTO> results = faceSearchService.searchByImage(file, startTime, endTime);
             return ResponseEntity.ok(results);
         } catch (Exception e) {
             log.error("人脸搜索失败: ", e);

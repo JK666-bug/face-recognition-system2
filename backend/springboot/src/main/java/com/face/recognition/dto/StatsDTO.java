@@ -16,4 +16,5 @@ public class StatsDTO {
     private String minioStatus;
     private String rabbitMQStatus;
     private java.util.List<String> activeLocations;
+    private java.util.List<RecentCaptureDTO> recentCaptures;
 }

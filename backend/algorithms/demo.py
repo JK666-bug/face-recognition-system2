@@ -18,12 +18,27 @@ def main():
     
     parser.add_argument('--source', type=str, default='0', help='输入源: 0 (摄像头) 或 视频文件路径')
     parser.add_argument('--model', type=str, default=None, help='专用面部检测模型路径 (默认自动查找)')
-    parser.add_argument('--conf', type=float, default=0.65, help='检测置信度 (默认 0.5)')
+    parser.add_argument('--location', type=str, default='Unknown', help='抓拍地点 (用于后端存入对象数据库)')
+    
+    # 尝试从全局配置加载默认置信度
+    default_conf = 0.65
+    try:
+        config_path = Path(__file__).resolve().parent.parent.parent / "config" / "settings.json"
+        if config_path.exists():
+            import json
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config_data = json.load(f)
+                if 'captureConfidence' in config_data:
+                    default_conf = float(config_data['captureConfidence'])
+                    # print(f"💡 已加载全局配置置信度: {default_conf}")
+    except Exception:
+        pass
+
+    parser.add_argument('--conf', type=float, default=default_conf, help=f'检测置信度 (当前全局默认: {default_conf})')
     parser.add_argument('--save', action='store_true', help='是否保存带有检测框的视频结果')
     parser.add_argument('--output', type=str, default=None, help='输出视频路径')
     parser.add_argument('--no-display', action='store_true', help='隐藏实时窗口')
     parser.add_argument('--no-save-faces', action='store_true', help='禁止保存独立的人脸图片到 images 目录')
-    parser.add_argument('--location', type=str, default='Unknown', help='抓拍地点 (用于后端存入对象数据库)')
 
     args = parser.parse_args()
 

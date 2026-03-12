@@ -1,5 +1,6 @@
 package com.face.recognition.service;
 
+import com.face.recognition.dto.RecentCaptureDTO;
 import com.face.recognition.dto.StatsDTO;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.param.R;
@@ -97,6 +98,65 @@ public class StatsService {
             log.warn("获取地点列表失败: {}", e.getMessage());
         }
 
+        // 5. 获取最近抓拍记录 (仅限5分钟内，最多6条)
+        java.util.List<RecentCaptureDTO> recentCaptures = new java.util.ArrayList<>();
+        try {
+            Iterable<Result<Item>> objects = minioClient.listObjects(
+                    ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
+            
+            java.util.List<Item> allItems = new java.util.ArrayList<>();
+            for (Result<Item> res : objects) {
+                allItems.add(res.get());
+            }
+            
+            // 按最后修改时间倒序排列
+            allItems.sort((a, b) -> b.lastModified().compareTo(a.lastModified()));
+            
+            // 始终取最新的前6个
+            int limit = Math.min(allItems.size(), 6);
+            for (int i = 0; i < limit; i++) {
+                Item item = allItems.get(i);
+                try {
+                    // 获取元数据和图片内容
+                    io.minio.StatObjectResponse stat = minioClient.statObject(
+                            io.minio.StatObjectArgs.builder()
+                                    .bucket(bucketName)
+                                    .object(item.objectName())
+                                    .build());
+                    
+                    java.util.Map<String, String> meta = stat.userMetadata();
+                    String location = meta.getOrDefault("location", 
+                                      meta.getOrDefault("location".toLowerCase(), 
+                                      meta.getOrDefault("x-amz-meta-location", "Unknown")));
+                    
+                    String timestamp = meta.getOrDefault("timestamp", 
+                                       meta.getOrDefault("timestamp".toLowerCase(), 
+                                       meta.getOrDefault("x-amz-meta-timestamp", item.lastModified().toString())));
+                    
+                    // 下载图片并转 Base64
+                    try (java.io.InputStream stream = minioClient.getObject(
+                            io.minio.GetObjectArgs.builder()
+                                    .bucket(bucketName)
+                                    .object(item.objectName())
+                                    .build())) {
+                        byte[] bytes = stream.readAllBytes();
+                        String base64 = java.util.Base64.getEncoder().encodeToString(bytes);
+                        
+                        recentCaptures.add(RecentCaptureDTO.builder()
+                                .id(item.objectName())
+                                .imageBase64(base64)
+                                .location(location)
+                                .timestamp(timestamp)
+                                .build());
+                    }
+                } catch (Exception e) {
+                    log.error("获取抓拍详情失败 [{}]: {}", item.objectName(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("获取最近抓拍失败: {}", e.getMessage());
+        }
+
         return StatsDTO.builder()
                 .totalFaces(totalCount)
                 .capturesToday(todayCount)
@@ -104,6 +164,7 @@ public class StatsService {
                 .milvusStatus(milvusStatus)
                 .rabbitMQStatus(rabbitStatus)
                 .activeLocations(locations)
+                .recentCaptures(recentCaptures)
                 .build();
     }
 }
