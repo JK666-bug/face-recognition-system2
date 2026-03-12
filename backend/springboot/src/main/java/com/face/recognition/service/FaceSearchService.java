@@ -234,23 +234,26 @@ public class FaceSearchService {
 
             // 1.1 获取关联视频 ID 并生成预签名 URL
             String videoId = meta.get("video_id");
-            if (videoId == null) {
-                videoId = meta.get("x-amz-meta-video_id");
-            }
+            if (videoId == null) videoId = meta.get("video-id");
+            if (videoId == null) videoId = meta.get("x-amz-meta-video_id");
+            if (videoId == null) videoId = meta.get("x-amz-meta-video-id");
             
             if (videoId != null && !videoId.isEmpty()) {
+                log.debug("Found videoId in metadata: {}", videoId);
                 try {
                     String presignedUrl = minioClient.getPresignedObjectUrl(
                             io.minio.GetPresignedObjectUrlArgs.builder()
                                     .method(io.minio.http.Method.GET)
                                     .bucket(videoBucketName)
                                     .object(videoId)
-                                    .expiry(2, java.util.concurrent.TimeUnit.HOURS) // 链接 2 小时有效
+                                    .expiry(2, java.util.concurrent.TimeUnit.HOURS)
                                     .build());
                     match.setVideoUrl(presignedUrl);
                 } catch (Exception ve) {
                     log.warn("生成视频预签名链接失败 [ID: {}]: {}", videoId, ve.getMessage());
                 }
+            } else {
+                log.debug("No videoId found in metadata for capture: {}", match.getId());
             }
 
             // 2. 获取图片缩略图 (转换为 Base64)

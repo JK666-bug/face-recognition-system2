@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Upload, Search as SearchIcon, MapPin, Clock, ArrowRight, Loader2, Play, X, BarChart3, MoreHorizontal } from 'lucide-react';
+import { Upload, Search as SearchIcon, MapPin, Clock, ArrowRight, Loader2, Play, X, BarChart3, MoreHorizontal, Download } from 'lucide-react';
 import { 
     BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, 
     AreaChart, Area, Cell
@@ -13,6 +13,7 @@ const Search = () => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
     const [activeVideo, setActiveVideo] = useState(null); // URL of current video
+    const [downloadingId, setDownloadingId] = useState(null);
     
     // Time filter states
     const [timeRange, setTimeRange] = useState('all'); // all, today, week, month, custom
@@ -91,6 +92,35 @@ const Search = () => {
     };
 
     const closeVideo = () => setActiveVideo(null);
+
+    const handleDownloadVideo = async (item) => {
+        if (!item.videoUrl) return;
+        
+        setDownloadingId(item.id);
+        try {
+            const response = await fetch(item.videoUrl);
+            if (!response.ok) throw new Error('Download failed');
+            
+            const blob = await response.blob();
+            if (blob.type === 'application/xml' || blob.type === 'text/xml') {
+                throw new Error('Server returned XML. Link might be expired.');
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `trajectory_${item.id}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('Download failed. File missing or server error.');
+        } finally {
+            setDownloadingId(null);
+        }
+    };
 
     // Derived filtered results
     const filteredResults = results.filter(item => {
@@ -338,11 +368,12 @@ const Search = () => {
                                             </div>
                                             {item.videoUrl && (
                                                 <button
-                                                    className="play-btn"
+                                                    className="play-btn-small"
                                                     title="Play original video"
                                                     onClick={() => setActiveVideo(item.videoUrl)}
+                                                    style={{ marginLeft: 'auto' }}
                                                 >
-                                                    <Play size={20} fill="currentColor" />
+                                                    <Play size={18} fill="currentColor" />
                                                 </button>
                                             )}
                                         </div>

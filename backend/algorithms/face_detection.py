@@ -130,127 +130,131 @@ class FaceDetector:
         current_video_id = utils.get_next_video_id(images_dir)
         face_counter = 1
 
-        print(f"🎥 正从 {source} 开始检测与追踪... (按 'q' 键退出)")
+        print(f"🎥 正从 {source} 开始检测与追踪... (按 'q' 键退出 或 Ctrl+C 终止)")
         
         window_name = 'Face Tracking & Deduplication (Unified Demo)'
         if display:
             cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
 
         try:
-            for result in results:
-                total_frames += 1
-                frame = result.orig_img
-                boxes = result.boxes
-                
-                # 定义这一帧看到的 ID 集合，用于后续判断哪些 ID 消失了
-                current_frame_ids = set()
-                current_frame_faces = []
-                
-                # 如果检测并追踪到了物体
-                if boxes is not None and boxes.id is not None:
-                    ids = boxes.id.int().cpu().tolist()
-                    coords = boxes.xyxy.int().cpu().tolist()
-                    confs = boxes.conf.cpu().tolist()
+            try:
+                for result in results:
+                    total_frames += 1
+                    frame = result.orig_img
+                    boxes = result.boxes
                     
-                    for i, track_id in enumerate(ids):
-                        bbox = coords[i]
-                        conf = confs[i]
-                        is_new_person = False
+                    # 定义这一帧看到的 ID 集合，用于后续判断哪些 ID 消失了
+                    current_frame_ids = set()
+                    current_frame_faces = []
+                    
+                    # 如果检测并追踪到了物体
+                    if boxes is not None and boxes.id is not None:
+                        ids = boxes.id.int().cpu().tolist()
+                        coords = boxes.xyxy.int().cpu().tolist()
+                        confs = boxes.conf.cpu().tolist()
                         
-                        # --- 核心逻辑：全局最优抓拍 (Global-Best Capture) ---
-                        # 记录当前帧看到的所有 ID
-                        current_frame_ids.add(track_id)
+                        for i, track_id in enumerate(ids):
+                            bbox = coords[i]
+                            conf = confs[i]
+                            is_new_person = False
+                            
+                            # --- 核心逻辑：全局最优抓拍 (Global-Best Capture) ---
+                            # 记录当前帧看到的所有 ID
+                            current_frame_ids.add(track_id)
+                            
+                            # 只要是没彻底处理完的新 ID，就尝试在缓冲区中寻找“绝对最美瞬间”
+                            if track_id not in processed_track_ids:
+                                # 如果该 ID 不在候选区，初始化
+                                if track_id not in capturing_candidates:
+                                    capturing_candidates[track_id] = {
+                                        'best_conf': conf,
+                                        'best_frame': frame.copy(),
+                                        'best_bbox': bbox,
+                                        'last_seen': total_frames
+                                    }
+                                else:
+                                    # 持续更新“最高置信度”记录
+                                    cand = capturing_candidates[track_id]
+                                    cand['last_seen'] = total_frames
+                                    if conf > cand['best_conf']:
+                                        cand['best_conf'] = conf
+                                        cand['best_frame'] = frame.copy()
+                                        cand['best_bbox'] = bbox
+    
+                            # 填充当前帧的人脸信息用于展示
+                            current_frame_faces.append({
+                                'bbox': bbox,
+                                'id': track_id,
+                                'status': 'TRACKING', # 全局最优模式下，我们不再实时标注 NEW，而是统一为追踪
+                                'conf': conf
+                            })
+    
+                    # --- 动态收网：判断哪些轨迹已经消失 ---
+                    # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，可以抓拍了
+                    track_ids_to_commit = []
+                    for tid, cand in capturing_candidates.items():
+                        # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1 秒)
+                        if tid not in current_frame_ids and (total_frames - cand['last_seen']) > 30:
+                            track_ids_to_commit.append(tid)
+    
+                    for tid in track_ids_to_commit:
+                        cand = capturing_candidates[tid]
+                        best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
                         
-                        # 只要是没彻底处理完的新 ID，就尝试在缓冲区中寻找“绝对最美瞬间”
-                        if track_id not in processed_track_ids:
-                            # 如果该 ID 不在候选区，初始化
-                            if track_id not in capturing_candidates:
-                                capturing_candidates[track_id] = {
-                                    'best_conf': conf,
-                                    'best_frame': frame.copy(),
-                                    'best_bbox': bbox,
-                                    'last_seen': total_frames
-                                }
-                            else:
-                                # 持续更新“最高置信度”记录
-                                cand = capturing_candidates[track_id]
-                                cand['last_seen'] = total_frames
-                                if conf > cand['best_conf']:
-                                    cand['best_conf'] = conf
-                                    cand['best_frame'] = frame.copy()
-                                    cand['best_bbox'] = bbox
-
-                        # 填充当前帧的人脸信息用于展示
-                        current_frame_faces.append({
-                            'bbox': bbox,
-                            'id': track_id,
-                            'status': 'TRACKING', # 全局最优模式下，我们不再实时标注 NEW，而是统一为追踪
-                            'conf': conf
-                        })
-
-                # --- 动态收网：判断哪些轨迹已经消失 ---
-                # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，可以抓拍了
-                track_ids_to_commit = []
-                for tid, cand in capturing_candidates.items():
-                    # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1 秒)
-                    if tid not in current_frame_ids and (total_frames - cand['last_seen']) > 30:
-                        track_ids_to_commit.append(tid)
-
-                for tid in track_ids_to_commit:
-                    cand = capturing_candidates[tid]
-                    best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
+                        if save_unique_faces:
+                            save_paths = utils.save_faces(
+                                cand['best_frame'], 
+                                [{'bbox': cand['best_bbox']}], 
+                                images_dir, 
+                                video_id=current_video_id, 
+                                face_id=face_counter
+                            )
+                            if save_paths:
+                                save_path = save_paths[0]
+                                if feature_extractor_callback:
+                                    feature_extractor_callback(best_face_img, save_path, video_id=video_id)
+                                known_faces_data.append({'id': tid})
+                                print(f"🎬 轨迹结束！已选出全局最优瞬间 [ID: {tid}] (最高置信度: {cand['best_conf']:.2f})")
+                                face_counter += 1
+                        
+                        processed_track_ids.add(tid)
+                        del capturing_candidates[tid]
                     
-                    if save_unique_faces:
-                        save_paths = utils.save_faces(
-                            cand['best_frame'], 
-                            [{'bbox': cand['best_bbox']}], 
-                            images_dir, 
-                            video_id=current_video_id, 
-                            face_id=face_counter
-                        )
-                        if save_paths:
-                            save_path = save_paths[0]
-                            if feature_extractor_callback:
-                                feature_extractor_callback(best_face_img, save_path, video_id=video_id)
-                            known_faces_data.append({'id': tid})
-                            print(f"🎬 轨迹结束！已选出全局最优瞬间 [ID: {tid}] (最高置信度: {cand['best_conf']:.2f})")
-                            face_counter += 1
+                    # --- 可视化 (绘制结果) ---
+                    annotated_frame = frame.copy()
+                    for face in current_frame_faces:
+                        x1, y1, x2, y2 = face['bbox']
+                        # 统一使用蓝色框表示正在追踪
+                        color = (255, 100, 0)
+                        cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
+                        label = f"ID:{face['id']} {face['conf']:.2f}"
+                        cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
                     
-                    processed_track_ids.add(tid)
-                    del capturing_candidates[tid]
-                
-                # --- 可视化 (绘制结果) ---
-                annotated_frame = frame.copy()
-                for face in current_frame_faces:
-                    x1, y1, x2, y2 = face['bbox']
-                    # 统一使用蓝色框表示正在追踪
-                    color = (255, 100, 0)
-                    cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
-                    label = f"ID:{face['id']} {face['conf']:.2f}"
-                    cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
-                
-                # 显示
-                if display:
-                    # 如果帧分辨率特别大 (比如 4K)，适当调整窗口显示
-                    cv2.imshow(window_name, annotated_frame)
-                    if cv2.waitKey(1) & 0xFF == ord('q'):
-                        break
-                
-                # 保存视频帧
-                if save_result:
-                    if video_writer is None:
-                        if output_path is None:
-                            # 同步文件名: video_N.mp4
-                            output_path = str(self.base_dir / "output" / "video" / f"video_{current_video_id}.mp4")
-                        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-                        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-                        h, w = annotated_frame.shape[:2]
-                        video_writer = cv2.VideoWriter(output_path, fourcc, 25, (w, h))
-                    video_writer.write(annotated_frame)
+                    # 显示
+                    if display:
+                        # 如果帧分辨率特别大 (比如 4K)，适当调整窗口显示
+                        cv2.imshow(window_name, annotated_frame)
+                        if cv2.waitKey(1) & 0xFF == ord('q'):
+                            break
                     
-                if total_frames % 50 == 0:
-                    print(f"处理中: 第 {total_frames} 帧 | 已捕获独特人脸: {len(known_faces_data)}")
+                    # 保存视频帧
+                    if save_result:
+                        if video_writer is None:
+                            if output_path is None:
+                                # 同步文件名: video_N.mp4
+                                output_path = str(self.base_dir / "output" / "video" / f"video_{current_video_id}.mp4")
+                            Path(output_path).parent.mkdir(parents=True, exist_ok=True)
+                            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+                            h, w = annotated_frame.shape[:2]
+                            video_writer = cv2.VideoWriter(output_path, fourcc, 25, (w, h))
+                        video_writer.write(annotated_frame)
+                        
+                    if total_frames % 50 == 0:
+                        print(f"处理中: 第 {total_frames} 帧 | 已捕获独特人脸: {len(known_faces_data)}")
             
+            except KeyboardInterrupt:
+                print("\n⏹️ 检测到强制中断 (Ctrl+C)，正在安全停止并保存视频...")
+
             # --- 最终清理：如果视频结束时还有由于帧数不足没来得及抓拍的候选人，现在强制抓拍 ---
             for track_id, cand in capturing_candidates.items():
                 if track_id not in processed_track_ids:

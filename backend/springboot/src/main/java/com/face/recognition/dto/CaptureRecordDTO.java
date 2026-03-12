@@ -15,4 +15,5 @@ public class CaptureRecordDTO {
     private String timestamp;
     private String location;
     private String videoId;
+    private String videoUrl;
 }

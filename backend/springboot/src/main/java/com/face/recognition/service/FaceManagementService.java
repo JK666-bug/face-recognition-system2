@@ -33,6 +33,9 @@ public class FaceManagementService {
     @Value("${spring.milvus.collectionName}")
     private String collectionName;
 
+    @Value("${spring.minio.videoBucketName:videos}")
+    private String videoBucketName;
+
     public List<CaptureRecordDTO> listAllCaptures() {
         List<CaptureRecordDTO> records = new ArrayList<>();
         try {
@@ -67,12 +70,34 @@ public class FaceManagementService {
                         base64 = Base64.getEncoder().encodeToString(bytes);
                     }
 
+                    // 获取关联视频 ID
+                    String videoId = meta.get("video_id");
+                    if (videoId == null) videoId = meta.get("video-id");
+                    if (videoId == null) videoId = meta.get("x-amz-meta-video_id");
+                    if (videoId == null) videoId = meta.get("x-amz-meta-video-id");
+
+                    String videoUrl = null;
+                    if (videoId != null && !videoId.isEmpty()) {
+                        try {
+                            videoUrl = minioClient.getPresignedObjectUrl(
+                                    GetPresignedObjectUrlArgs.builder()
+                                            .method(io.minio.http.Method.GET)
+                                            .bucket(videoBucketName)
+                                            .object(videoId)
+                                            .expiry(2, java.util.concurrent.TimeUnit.HOURS)
+                                            .build());
+                        } catch (Exception ve) {
+                            log.warn("Failed to generate presigned URL for video {}: {}", videoId, ve.getMessage());
+                        }
+                    }
+
                     records.add(CaptureRecordDTO.builder()
                             .id(id)
                             .imageBase64(base64)
                             .location(location)
                             .timestamp(timestamp)
-                            .videoId(meta.get("video_id"))
+                            .videoId(videoId)
+                            .videoUrl(videoUrl)
                             .build());
 
                 } catch (Exception e) {
@@ -119,5 +144,13 @@ public class FaceManagementService {
         } catch (Exception e) {
             log.error("Exception during Milvus deletion: {}", e.getMessage());
         }
+    }
+
+    public InputStream getVideo(String videoId) throws Exception {
+        return minioClient.getObject(
+                GetObjectArgs.builder()
+                        .bucket(videoBucketName)
+                        .object(videoId)
+                        .build());
     }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, ShieldCheck, UserCog, UserCheck, ShieldAlert, Loader2, Key, User as UserIcon } from 'lucide-react';
+import { UserPlus, ShieldCheck, UserCog, UserCheck, ShieldAlert, Loader2, Key, User as UserIcon, Trash2 } from 'lucide-react';
 
 const AccessControl = () => {
     const [users, setUsers] = useState([]);
@@ -74,6 +74,31 @@ const AccessControl = () => {
             }
         } catch (error) {
             alert('Promotion failed.');
+        }
+    };
+
+    const handleDeleteUser = async (id, username) => {
+        if (username === currentUser.username) {
+            alert('You cannot delete your own account.');
+            return;
+        }
+        if (!window.confirm(`Are you sure you want to PERMANENTLY delete admin account: ${username}?`)) return;
+        
+        const token = localStorage.getItem('token');
+        try {
+            const response = await fetch(`http://localhost:8080/api/management/admin/users/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            if (response.ok) {
+                fetchUsers();
+            } else {
+                const msg = await response.text();
+                alert(msg || 'Deletion failed.');
+            }
+        } catch (error) {
+            alert('Deletion request failed.');
         }
     };
 
@@ -203,18 +228,32 @@ const AccessControl = () => {
                                     </span>
                                     
                                     {user.role === 'ADMIN' && (
-                                        <button 
-                                            onClick={() => handlePromote(user.id)}
-                                            style={{ 
-                                                padding: '8px 12px', background: 'rgba(0, 210, 255, 0.1)',
-                                                border: '1px solid rgba(0, 210, 255, 0.2)', borderRadius: '8px',
-                                                color: '#00d2ff', cursor: 'pointer', fontSize: '12px',
-                                                display: 'flex', alignItems: 'center', gap: '6px'
-                                            }}
-                                        >
-                                            <UserCheck size={14} />
-                                            Promote
-                                        </button>
+                                        <>
+                                            <button 
+                                                onClick={() => handlePromote(user.id)}
+                                                style={{ 
+                                                    padding: '8px 12px', background: 'rgba(0, 210, 255, 0.1)',
+                                                    border: '1px solid rgba(0, 210, 255, 0.2)', borderRadius: '8px',
+                                                    color: '#00d2ff', cursor: 'pointer', fontSize: '12px',
+                                                    display: 'flex', alignItems: 'center', gap: '6px'
+                                                }}
+                                            >
+                                                <UserCheck size={14} />
+                                                Promote
+                                            </button>
+
+                                            <button 
+                                                onClick={() => handleDeleteUser(user.id, user.username)}
+                                                style={{ 
+                                                    padding: '8px', background: 'rgba(244, 63, 94, 0.1)',
+                                                    border: '1px solid rgba(244, 63, 94, 0.2)', borderRadius: '8px',
+                                                    color: '#f43f5e', cursor: 'pointer'
+                                                }}
+                                                title="Delete User"
+                                            >
+                                                <Trash2 size={16} />
+                                            </button>
+                                        </>
                                     )}
                                 </div>
                             </div>

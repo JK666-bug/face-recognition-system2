@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, MapPin, Clock, Search, Filter, RefreshCcw, Loader2, AlertTriangle } from 'lucide-react';
+import { Trash2, MapPin, Clock, Search, Filter, RefreshCcw, Loader2, AlertTriangle, Video, Play, X, Download } from 'lucide-react';
 
 const HistoryManager = () => {
     const [records, setRecords] = useState([]);
@@ -7,6 +7,8 @@ const HistoryManager = () => {
     const [filterLocation, setFilterLocation] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingId, setDeletingId] = useState(null);
+    const [downloadingId, setDownloadingId] = useState(null);
+    const [activeVideo, setActiveVideo] = useState(null);
 
     useEffect(() => {
         fetchRecords();
@@ -49,6 +51,44 @@ const HistoryManager = () => {
             setDeletingId(null);
         }
     };
+
+    const handleDownloadVideo = async (record) => {
+        if (!record.videoUrl) {
+            alert("Video link not available yet.");
+            return;
+        }
+        
+        setDownloadingId(record.videoId);
+        try {
+            // 使用 fetch 获取视频二进制流，确保不受浏览器拦截或签名丢失影响
+            const response = await fetch(record.videoUrl);
+            if (!response.ok) throw new Error('Download failed');
+            
+            const blob = await response.blob();
+            // 验证是否真的是 XML (MinIO 报错通常返回 XML)
+            if (blob.type === 'application/xml' || blob.type === 'text/xml') {
+                throw new Error('Server returned XML instead of video. The link might be expired.');
+            }
+
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            // 强制命名为 .mp4
+            a.download = `${record.videoId || 'evidence'}.mp4`;
+            document.body.appendChild(a);
+            a.click();
+            
+            // 释放内存
+            window.URL.revokeObjectURL(url);
+            a.remove();
+        } catch (error) {
+            console.error('Download error:', error);
+            alert('Download failed. Server error or file missing.');
+        } finally {
+            setDownloadingId(null);
+        }
+    };
+
 
     // Derived data for filters
     const locations = useMemo(() => {
@@ -161,11 +201,27 @@ const HistoryManager = () => {
                                         ID: {record.id}
                                     </div>
                                     
+                                    {record.videoId && (
+                                        <button 
+                                            onClick={() => record.videoUrl ? setActiveVideo(record.videoUrl) : alert('Video stream not ready')}
+                                            style={{ 
+                                                marginTop: '12px', width: '100%', padding: '12px',
+                                                background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)',
+                                                borderRadius: '12px', color: '#10b981', cursor: 'pointer',
+                                                display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+                                                transition: 'all 0.2s', fontWeight: 'bold'
+                                            }}
+                                        >
+                                            <Play size={18} fill="currentColor" />
+                                            Play Video Evidence
+                                        </button>
+                                    )}
+
                                     <button 
                                         onClick={() => handleDelete(record.id)}
                                         disabled={deletingId === record.id}
                                         style={{ 
-                                            marginTop: '20px', width: '100%', padding: '10px',
+                                            marginTop: '12px', width: '100%', padding: '10px',
                                             background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.2)',
                                             borderRadius: '10px', color: '#f43f5e', cursor: 'pointer',
                                             display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
@@ -190,9 +246,41 @@ const HistoryManager = () => {
                 </>
             )}
 
+            {activeVideo && (
+                <div style={{
+                    position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
+                    background: 'rgba(0,0,0,0.85)', backdropFilter: 'blur(10px)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000,
+                    padding: '40px'
+                }} onClick={() => setActiveVideo(null)}>
+                    <div style={{
+                        width: '100%', maxWidth: '900px', background: '#0f172a',
+                        borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)',
+                        overflow: 'hidden', position: 'relative'
+                    }} onClick={e => e.stopPropagation()}>
+                        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>Source Video Feedback</h3>
+                            <button onClick={() => setActiveVideo(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+                                <X size={24} />
+                            </button>
+                        </div>
+                        <video 
+                            src={activeVideo} 
+                            controls 
+                            autoPlay 
+                            style={{ width: '100%', display: 'block', maxHeight: '70vh' }}
+                        />
+                        <div style={{ padding: '15px', textAlign: 'center', color: '#475569', fontSize: '12px' }}>
+                            Streaming encrypted content from MinIO Cloud Storage
+                        </div>
+                    </div>
+                </div>
+            )}
+
             <style>{`
                 .history-card:hover { transform: translateY(-5px); border-color: rgba(0, 210, 255, 0.3); box-shadow: 0 10px 30px rgba(0,0,0,0.3); }
                 .delete-btn:hover { background: #f43f5e; color: white; }
+                .play-btn:hover { background: rgba(16, 185, 129, 0.2); border-color: #10b981; }
                 .spinner { animation: spin 1s linear infinite; }
                 @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
             `}</style>

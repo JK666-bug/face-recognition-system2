@@ -5,9 +5,14 @@ import com.face.recognition.model.User;
 import com.face.recognition.repository.UserRepository;
 import com.face.recognition.service.FaceManagementService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.core.io.Resource;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.InputStream;
 import java.util.List;
 
 @RestController
@@ -34,6 +39,21 @@ public class FaceManagementController {
         managementService.deleteCapture(id);
     }
 
+    @GetMapping("/videos/{videoId}")
+    public ResponseEntity<Resource> downloadVideo(@PathVariable String videoId) {
+        try {
+            InputStream videoStream = managementService.getVideo(videoId);
+            InputStreamResource resource = new InputStreamResource(videoStream);
+
+            return ResponseEntity.ok()
+                    .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + videoId + "\"")
+                    .contentType(MediaType.parseMediaType("video/mp4"))
+                    .body(resource);
+        } catch (Exception e) {
+            return ResponseEntity.notFound().build();
+        }
+    }
+
     // --- 用户管理系统 (超级管理员专用) ---
 
     @GetMapping("/admin/users")
@@ -56,6 +76,18 @@ public class FaceManagementController {
         return userRepository.findById(id).map(user -> {
             user.setRole("SUPER_ADMIN");
             return ResponseEntity.ok(userRepository.save(user));
+        }).orElse(ResponseEntity.notFound().build());
+    }
+
+    @DeleteMapping("/admin/users/{id}")
+    public ResponseEntity<?> deleteUser(@PathVariable Long id) {
+        return userRepository.findById(id).map(user -> {
+            // 禁止删除任何超级管理员 (只能删除普通 ADMIN)
+            if ("SUPER_ADMIN".equals(user.getRole())) {
+                return ResponseEntity.badRequest().body("Super Administrators cannot be deleted.");
+            }
+            userRepository.delete(user);
+            return ResponseEntity.ok().build();
         }).orElse(ResponseEntity.notFound().build());
     }
 }
