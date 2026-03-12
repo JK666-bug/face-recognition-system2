@@ -4,16 +4,8 @@ __pycache__/
 *$py.class
 *.so
 
-# 忽略虚拟环境
-venv/
-env/
-ENV/
 
-# 忽略 YOLOv8 模型文件（太大）
-*.pt
-*.pth
-*.onnx
-*.engine
+
 
 # 忽略输出文件
 output/
