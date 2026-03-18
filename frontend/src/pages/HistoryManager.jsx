@@ -14,6 +14,59 @@ const HistoryManager = () => {
         fetchRecords();
     }, []);
 
+    const handleDelete = async (id) => {
+        if (!window.confirm('Are you sure you want to permanently remove this capture record from storage and vector database?')) {
+            return;
+        }
+
+        setDeletingId(id);
+        const token = localStorage.getItem('token');
+        try {
+            const response = await fetch(`http://localhost:8080/api/management/captures/${id}`, {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                setRecords(records.filter(r => r.id !== id));
+            } else {
+                alert('Deletion failed. You might not have permission.');
+            }
+        } catch (error) {
+            console.error('Delete error:', error);
+            alert('Server connection error.');
+        } finally {
+            setDeletingId(null);
+        }
+    };
+
+    const handleClearAll = async () => {
+        if (!window.confirm('CRITICAL WARNING: This will permanently delete ALL capture records, images, and vectors. This action cannot be undone. Proceed?')) {
+            return;
+        }
+
+        setLoading(true);
+        const token = localStorage.getItem('token');
+        try {
+            const response = await fetch('http://localhost:8080/api/management/captures/all', {
+                method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (response.ok) {
+                setRecords([]);
+                alert('All data has been cleared from cloud storage and vector database.');
+            } else {
+                alert('Bulk deletion failed.');
+            }
+        } catch (error) {
+            console.error('Clear all error:', error);
+            alert('Server connection error.');
+        } finally {
+            setLoading(false);
+        }
+    };
+
     const fetchRecords = async () => {
         setLoading(true);
         const token = localStorage.getItem('token');
@@ -29,26 +82,6 @@ const HistoryManager = () => {
             console.error('Failed to fetch history:', error);
         } finally {
             setLoading(false);
-        }
-    };
-
-    const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to permanently delete this capture record from both MinIO and Milvus?')) return;
-        
-        setDeletingId(id);
-        const token = localStorage.getItem('token');
-        try {
-            const response = await fetch(`http://localhost:8080/api/management/captures/${id}`, {
-                method: 'DELETE',
-                headers: { 'Authorization': `Bearer ${token}` }
-            });
-            if (response.ok) {
-                setRecords(records.filter(r => r.id !== id));
-            }
-        } catch (error) {
-            alert('Deletion failed. Please check backend logs.');
-        } finally {
-            setDeletingId(null);
         }
     };
 
@@ -112,26 +145,39 @@ const HistoryManager = () => {
             <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
                     <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Dataset Explorer</h2>
-                    <p style={{ color: '#64748b' }}>Search, filter and manage historical snapshots in vector and object storage.</p>
+                    <p style={{ color: '#94a3b8' }}>Search, filter and manage historical snapshots in vector and object storage.</p>
                 </div>
-                <button 
-                    onClick={fetchRecords} 
-                    style={{ 
-                        display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
-                        background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                        borderRadius: '12px', color: '#94a3b8', cursor: 'pointer'
-                    }}
-                >
-                    <RefreshCcw size={18} className={loading ? 'spinner' : ''} />
-                    Refresh Data
-                </button>
+                <div style={{ display: 'flex', gap: '12px' }}>
+                    <button 
+                        onClick={handleClearAll} 
+                        style={{ 
+                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+                            background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.2)',
+                            borderRadius: '12px', color: '#f43f5e', cursor: 'pointer', fontWeight: 'bold'
+                        }}
+                    >
+                        <Trash2 size={18} />
+                        Clear All History
+                    </button>
+                    <button 
+                        onClick={fetchRecords} 
+                        style={{ 
+                            display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 20px',
+                            background: 'rgba(255, 255, 255, 0.05)', border: '1px solid rgba(255, 255, 255, 0.1)',
+                            borderRadius: '12px', color: '#94a3b8', cursor: 'pointer'
+                        }}
+                    >
+                        <RefreshCcw size={18} className={loading ? 'spinner' : ''} />
+                        Refresh Data
+                    </button>
+                </div>
             </div>
 
             {/* Filter Bar */}
             <div style={{ 
                 display: 'flex', gap: '16px', marginBottom: '32px', 
                 background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '18px',
-                border: '1px solid rgba(255,255,255,0.05)'
+                border: '1px solid rgba(255, 255, 255, 0.05)'
             }}>
                 <div style={{ flex: 1, position: 'relative' }}>
                     <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
@@ -142,7 +188,7 @@ const HistoryManager = () => {
                         onChange={(e) => setSearchTerm(e.target.value)}
                         style={{ 
                             width: '100%', padding: '12px 12px 12px 42px', background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'white'
+                            border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', color: 'white'
                         }}
                     />
                 </div>
@@ -153,7 +199,7 @@ const HistoryManager = () => {
                         onChange={(e) => setFilterLocation(e.target.value)}
                         style={{ 
                             width: '100%', padding: '12px 12px 12px 42px', background: 'rgba(255,255,255,0.03)',
-                            border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'white',
+                            border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', color: 'white',
                             appearance: 'none'
                         }}
                     >
@@ -169,7 +215,7 @@ const HistoryManager = () => {
             {loading && records.length === 0 ? (
                 <div style={{ padding: '100px', textAlign: 'center' }}>
                     <Loader2 size={48} className="spinner" color="#00d2ff" style={{ margin: '0 auto' }} />
-                    <p style={{ marginTop: '20px', color: '#64748b' }}>Indexing cloud records...</p>
+                    <p style={{ marginTop: '20px', color: '#94a3b8' }}>Indexing cloud records...</p>
                 </div>
             ) : (
                 <>
@@ -183,6 +229,22 @@ const HistoryManager = () => {
                                 border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden',
                                 transition: 'all 0.3s ease', position: 'relative'
                             }} className="history-card">
+                                <button 
+                                    onClick={() => handleDelete(record.id)}
+                                    disabled={deletingId === record.id}
+                                    style={{ 
+                                        position: 'absolute', top: '10px', right: '10px',
+                                        width: '32px', height: '32px', borderRadius: '8px',
+                                        background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.2)',
+                                        color: '#f43f5e', cursor: 'pointer', display: 'flex',
+                                        alignItems: 'center', justifyContent: 'center',
+                                        transition: 'all 0.2s', zIndex: 10
+                                    }}
+                                    className="delete-btn"
+                                    title="Drop Record"
+                                >
+                                    {deletingId === record.id ? <Loader2 size={16} className="spinner" /> : <Trash2 size={16} />}
+                                </button>
                                 <img 
                                     src={`data:image/jpeg;base64,${record.imageBase64}`} 
                                     style={{ width: '100%', height: '200px', objectFit: 'cover' }}
@@ -197,13 +259,14 @@ const HistoryManager = () => {
                                         <Clock size={14} />
                                         {record.timestamp}
                                     </div>
-                                    <div style={{ fontSize: '10px', color: '#1e293b', background: '#e2e8f0', padding: '4px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    <div style={{ fontSize: '10px', color: '#1e293b', background: '#334155', padding: '4px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         ID: {record.id}
                                     </div>
                                     
                                     {record.videoId && (
                                         <button 
-                                            onClick={() => record.videoUrl ? setActiveVideo(record.videoUrl) : alert('Video stream not ready')}
+                                            onClick={() => handleDownloadVideo(record)}
+                                            disabled={downloadingId === record.videoId}
                                             style={{ 
                                                 marginTop: '12px', width: '100%', padding: '12px',
                                                 background: 'rgba(16, 185, 129, 0.1)', border: '1px solid rgba(16, 185, 129, 0.2)',
@@ -212,26 +275,11 @@ const HistoryManager = () => {
                                                 transition: 'all 0.2s', fontWeight: 'bold'
                                             }}
                                         >
-                                            <Play size={18} fill="currentColor" />
-                                            Play Video Evidence
+                                            {downloadingId === record.videoId ? <Loader2 size={18} className="spinner" /> : <Download size={18} />}
+                                            {downloadingId === record.videoId ? 'Downloading...' : 'Download Video'}
                                         </button>
                                     )}
 
-                                    <button 
-                                        onClick={() => handleDelete(record.id)}
-                                        disabled={deletingId === record.id}
-                                        style={{ 
-                                            marginTop: '12px', width: '100%', padding: '10px',
-                                            background: 'rgba(244, 63, 94, 0.1)', border: '1px solid rgba(244, 63, 94, 0.2)',
-                                            borderRadius: '10px', color: '#f43f5e', cursor: 'pointer',
-                                            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
-                                            transition: 'all 0.2s'
-                                        }}
-                                        className="delete-btn"
-                                    >
-                                        {deletingId === record.id ? <Loader2 size={16} className="spinner" /> : <Trash2 size={16} />}
-                                        {deletingId === record.id ? 'Wiping...' : 'Drop Record'}
-                                    </button>
                                 </div>
                             </div>
                         ))}
@@ -255,10 +303,10 @@ const HistoryManager = () => {
                 }} onClick={() => setActiveVideo(null)}>
                     <div style={{
                         width: '100%', maxWidth: '900px', background: '#0f172a',
-                        borderRadius: '24px', border: '1px solid rgba(255,255,255,0.1)',
+                        borderRadius: '24px', border: '1px solid rgba(255, 255, 255, 0.1)',
                         overflow: 'hidden', position: 'relative'
                     }} onClick={e => e.stopPropagation()}>
-                        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div style={{ padding: '20px', borderBottom: '1px solid rgba(255, 255, 255, 0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <h3 style={{ fontSize: '18px', fontWeight: 'bold' }}>Source Video Feedback</h3>
                             <button onClick={() => setActiveVideo(null)} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
                                 <X size={24} />

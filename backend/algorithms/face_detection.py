@@ -10,6 +10,7 @@ from typing import List, Dict, Union, Optional
 from pathlib import Path
 import utils
 import os
+import time
 
 
 class FaceDetector:
@@ -116,11 +117,30 @@ class FaceDetector:
         total_frames = 0
         video_writer = None
         
-        # 核心去重数据
-        processed_track_ids = set()
-        capturing_candidates = {} # 暂存候选抓拍 (ID -> {best_conf, best_frame, best_bbox, frames_seen})
+        # 核心去重与推送逻辑 (首尾保时效, 过程保质量)
+        capturing_candidates = {} # ID -> {last_captured_time, last_frame, last_bbox, last_seen, last_conf, best_quality_conf}
         known_faces_data = [] 
         
+        # 定义推送闭包
+        face_counter = [1]
+        def push_face(tid, face_frame, face_bbox, conf, reason="TRACE"):
+            best_face_img = utils.crop_face(face_frame, face_bbox)
+            if save_unique_faces:
+                save_paths = utils.save_faces(
+                    face_frame, 
+                    [{'bbox': face_bbox}], 
+                    images_dir, 
+                    video_id=current_video_id, 
+                    face_id=face_counter[0]
+                )
+                if save_paths:
+                    save_path = save_paths[0]
+                    if feature_extractor_callback:
+                        feature_extractor_callback(best_face_img, save_path, video_id=video_id)
+                    known_faces_data.append({'id': tid, 'reason': reason})
+                    print(f"📡 [{reason}] 抓拍推送! [ID: {tid}] (置信度: {conf:.2f}) (序列: {face_counter[0]})")
+                    face_counter[0] += 1
+
         # 标准化输出目录：始终保存在 algorithms/output/images (如用户要求)
         images_dir = self.base_dir / "output" / "images"
         if save_unique_faces:
@@ -128,9 +148,8 @@ class FaceDetector:
             
         # 获取当前视频的全局编号
         current_video_id = utils.get_next_video_id(images_dir)
-        face_counter = 1
 
-        print(f"🎥 正从 {source} 开始检测与追踪... (按 'q' 键退出 或 Ctrl+C 终止)")
+        print(f"🎥 正从 {source} 开始检测与追踪... (新逻辑: 实时+周期+收尾)")
         
         window_name = 'Face Tracking & Deduplication (Unified Demo)'
         if display:
@@ -152,72 +171,75 @@ class FaceDetector:
                         ids = boxes.id.int().cpu().tolist()
                         coords = boxes.xyxy.int().cpu().tolist()
                         confs = boxes.conf.cpu().tolist()
+                        # 提取关键点 (Landmarks) 用于计算偏转角
+                        kpts = result.keypoints.xy.cpu().numpy() if result.keypoints is not None else []
                         
+                        current_time = time.time()
                         for i, track_id in enumerate(ids):
                             bbox = coords[i]
                             conf = confs[i]
-                            is_new_person = False
+                            # 计算偏离角得分 (Yaw Score)
+                            face_kpt = kpts[i] if len(kpts) > i else None
+                            yaw_score = utils.calculate_face_orientation(face_kpt)
+                            is_good_frontal = yaw_score < 0.20 # 判定为高质量正脸 (约 30 度以内)
                             
-                            # --- 核心逻辑：全局最优抓拍 (Global-Best Capture) ---
                             # 记录当前帧看到的所有 ID
                             current_frame_ids.add(track_id)
                             
-                            # 只要是没彻底处理完的新 ID，就尝试在缓冲区中寻找“绝对最美瞬间”
-                            if track_id not in processed_track_ids:
-                                # 如果该 ID 不在候选区，初始化
-                                if track_id not in capturing_candidates:
-                                    capturing_candidates[track_id] = {
-                                        'best_conf': conf,
-                                        'best_frame': frame.copy(),
-                                        'best_bbox': bbox,
-                                        'last_seen': total_frames
-                                    }
-                                else:
-                                    # 持续更新“最高置信度”记录
-                                    cand = capturing_candidates[track_id]
-                                    cand['last_seen'] = total_frames
-                                    if conf > cand['best_conf']:
-                                        cand['best_conf'] = conf
-                                        cand['best_frame'] = frame.copy()
-                                        cand['best_bbox'] = bbox
+                            # --- 逻辑引擎 ---
+                            if track_id not in capturing_candidates:
+                                # 🆕 1. 进场时效抓拍 (ENTER): 见人就抓
+                                capturing_candidates[track_id] = {
+                                    'last_captured_time': current_time,
+                                    'last_frame': frame.copy(),
+                                    'last_bbox': bbox,
+                                    'last_seen': total_frames,
+                                    'last_conf': conf,
+                                    'best_quality_conf': 0.0,
+                                    'has_pushed_quality': False
+                                }
+                                push_face(track_id, frame, bbox, conf, "ENTER")
+                            else:
+                                cand = capturing_candidates[track_id]
+                                cand['last_seen'] = total_frames
+                                cand['last_frame'] = frame.copy()
+                                cand['last_bbox'] = bbox
+                                cand['last_conf'] = conf
+                                
+                                # 🆒 2. 最优质量抓拍 (QUALITY): 在满足偏转角度之下寻找分数最高的
+                                if is_good_frontal:
+                                    # 如果这是追踪过程中第一次发现正脸， 或者当前分数比上次推的 QUALITY 高出 0.10 以上
+                                    if not cand['has_pushed_quality'] or conf >= (cand['best_quality_conf'] + 0.10):
+                                        push_face(track_id, frame, bbox, conf, "QUALITY")
+                                        cand['has_pushed_quality'] = True
+                                        cand['best_quality_conf'] = conf
+                                        cand['last_captured_time'] = current_time 
+                                        
+                                # 🕔 3. 周期性存证 (STAYING): 路径维持 (每分钟)
+                                if current_time - cand['last_captured_time'] >= 60:
+                                    push_face(track_id, frame, bbox, conf, "STAYING")
+                                    cand['last_captured_time'] = current_time
     
                             # 填充当前帧的人脸信息用于展示
                             current_frame_faces.append({
                                 'bbox': bbox,
                                 'id': track_id,
-                                'status': 'TRACKING', # 全局最优模式下，我们不再实时标注 NEW，而是统一为追踪
+                                'status': 'TRACKING',
                                 'conf': conf
                             })
     
-                    # --- 动态收网：判断哪些轨迹已经消失 ---
-                    # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，可以抓拍了
-                    track_ids_to_commit = []
+                    # --- 逻辑 C: 消失瞬间收网抓拍 ---
+                    # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，抓拍最后一帧
+                    track_ids_to_remove = []
                     for tid, cand in capturing_candidates.items():
-                        # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1 秒)
+                        # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1.2 秒)
                         if tid not in current_frame_ids and (total_frames - cand['last_seen']) > 30:
-                            track_ids_to_commit.append(tid)
+                            track_ids_to_remove.append(tid)
     
-                    for tid in track_ids_to_commit:
+                    for tid in track_ids_to_remove:
                         cand = capturing_candidates[tid]
-                        best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
-                        
-                        if save_unique_faces:
-                            save_paths = utils.save_faces(
-                                cand['best_frame'], 
-                                [{'bbox': cand['best_bbox']}], 
-                                images_dir, 
-                                video_id=current_video_id, 
-                                face_id=face_counter
-                            )
-                            if save_paths:
-                                save_path = save_paths[0]
-                                if feature_extractor_callback:
-                                    feature_extractor_callback(best_face_img, save_path, video_id=video_id)
-                                known_faces_data.append({'id': tid})
-                                print(f"🎬 轨迹结束！已选出全局最优瞬间 [ID: {tid}] (最高置信度: {cand['best_conf']:.2f})")
-                                face_counter += 1
-                        
-                        processed_track_ids.add(tid)
+                        # 🏁 4. 离场时效抓拍 (LEAVE): 用离开瞬间的画面收尾
+                        push_face(tid, cand['last_frame'], cand['last_bbox'], cand['last_conf'], "LEAVE")
                         del capturing_candidates[tid]
                     
                     # --- 可视化 (绘制结果) ---
@@ -255,26 +277,9 @@ class FaceDetector:
             except KeyboardInterrupt:
                 print("\n⏹️ 检测到强制中断 (Ctrl+C)，正在安全停止并保存视频...")
 
-            # --- 最终清理：如果视频结束时还有由于帧数不足没来得及抓拍的候选人，现在强制抓拍 ---
+            # --- 最终清理 ---
             for track_id, cand in capturing_candidates.items():
-                if track_id not in processed_track_ids:
-                    best_face_img = utils.crop_face(cand['best_frame'], cand['best_bbox'])
-                    if save_unique_faces:
-                        save_paths = utils.save_faces(
-                            cand['best_frame'], 
-                            [{'bbox': cand['best_bbox']}], 
-                            images_dir, 
-                            video_id=current_video_id, 
-                            face_id=face_counter
-                        )
-                        if save_paths:
-                            save_path = save_paths[0]
-                            if feature_extractor_callback:
-                                feature_extractor_callback(best_face_img, save_path, video_id=video_id)
-                            known_faces_data.append({'id': track_id})
-                            print(f"🏁 视频结束补抓: [ID: {track_id}] (最高置信度: {cand['best_conf']:.2f})")
-                            face_counter += 1
-                    processed_track_ids.add(track_id)
+                push_face(track_id, cand['last_frame'], cand['last_bbox'], cand['last_conf'], "LEAVE")
             capturing_candidates.clear()
                     
         finally:

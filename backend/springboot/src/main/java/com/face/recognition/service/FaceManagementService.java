@@ -2,7 +2,6 @@ package com.face.recognition.service;
 
 import com.face.recognition.dto.CaptureRecordDTO;
 import io.milvus.client.MilvusServiceClient;
-import io.milvus.param.R;
 import io.milvus.param.dml.DeleteParam;
 import io.minio.*;
 import io.minio.messages.Item;
@@ -116,33 +115,39 @@ public class FaceManagementService {
 
     public void deleteCapture(String id) {
         String objectName = id + ".jpg";
-        log.info("Request to delete capture record: {}", id);
-
-        // 1. 从 MinIO 删除
         try {
             minioClient.removeObject(
                     RemoveObjectArgs.builder().bucket(bucketName).object(objectName).build());
-            log.info("Deleted image from MinIO: {}", objectName);
-        } catch (Exception e) {
-            log.error("Failed to delete from MinIO: {}", e.getMessage());
-        }
-
-        // 2. 从 Milvus 删除
-        try {
-            String expr = "face_id in [\"" + id + "\"]";
-            R<?> deleteRes = milvusClient.delete(
+            milvusClient.delete(
                     DeleteParam.newBuilder()
                             .withCollectionName(collectionName)
-                            .withExpr(expr)
+                            .withExpr("face_id == \"" + id + "\"")
                             .build());
-            
-            if (deleteRes.getStatus() == R.Status.Success.getCode()) {
-                log.info("Deleted vector from Milvus: {}", id);
-            } else {
-                log.error("Milvus deletion failed: {}", deleteRes.getMessage());
-            }
+            log.info("Successfully deleted capture and vector for ID: {}", id);
         } catch (Exception e) {
-            log.error("Exception during Milvus deletion: {}", e.getMessage());
+            log.error("Failed to delete capture {}: {}", id, e.getMessage());
+        }
+    }
+
+    public void deleteAllCaptures() {
+        log.warn("Request to clear ALL capture records.");
+        try {
+            Iterable<Result<Item>> results = minioClient.listObjects(
+                    ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
+            
+            for (Result<Item> result : results) {
+                minioClient.removeObject(
+                        RemoveObjectArgs.builder().bucket(bucketName).object(result.get().objectName()).build());
+            }
+
+            milvusClient.delete(
+                    DeleteParam.newBuilder()
+                            .withCollectionName(collectionName)
+                            .withExpr("face_id != \"\"")
+                            .build());
+            log.info("All images and vectors cleared.");
+        } catch (Exception e) {
+            log.error("Failed to clear all captures: {}", e.getMessage());
         }
     }
 

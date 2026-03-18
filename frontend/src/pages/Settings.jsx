@@ -63,7 +63,7 @@ const Settings = () => {
         <div style={{ maxWidth: '800px', margin: '0 auto', padding: '40px 20px' }}>
             <div style={{ marginBottom: '40px' }}>
                 <h2 style={{ fontSize: '28px', fontWeight: '700', marginBottom: '12px' }}>System Configuration</h2>
-                <p style={{ color: '#64748b' }}>Precision control for face detection and vector similarity indexing.</p>
+                <p style={{ color: '#94a3b8' }}>Precision control for face detection and vector similarity indexing.</p>
             </div>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '32px' }}>
@@ -81,7 +81,7 @@ const Settings = () => {
                         </div>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>Capture Confidence</h3>
-                            <p style={{ fontSize: '14px', color: '#64748b' }}>Minimum score for the real-time algorithm to save a face.</p>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>Minimum score for the real-time algorithm to save a face.</p>
                         </div>
                     </div>
                     
@@ -124,7 +124,7 @@ const Settings = () => {
                         </div>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>Search Threshold</h3>
-                            <p style={{ fontSize: '14px', color: '#64748b' }}>Vector similarity floor for historical trajectory matching.</p>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>Vector similarity floor for historical trajectory matching.</p>
                         </div>
                     </div>
                     

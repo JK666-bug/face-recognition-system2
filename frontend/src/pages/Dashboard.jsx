@@ -82,7 +82,7 @@ const DashboardContent = () => {
 
     return (
         <div style={{ padding: '32px' }}>
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>Global Statistics</h4>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>Global Statistics</h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '24px', marginBottom: '40px' }}>
                 {mainStats.map((stat, i) => (
                     <div key={i} style={{
@@ -101,7 +101,7 @@ const DashboardContent = () => {
                 ))}
             </div>
 
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>System Health Pipeline</h4>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>System Health Pipeline</h4>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '24px', marginBottom: '40px' }}>
                 {healthStats.map((stat, i) => (
                     <div key={i} style={{
@@ -132,7 +132,7 @@ const DashboardContent = () => {
                 ))}
             </div>
 
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Latest Intelligence Activity</h4>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Latest Intelligence Activity</h4>
             <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
                 borderRadius: '24px',
@@ -183,7 +183,7 @@ const DashboardContent = () => {
                 </div>
             </div>
 
-            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#64748b', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Active Capture Nodes</h4>
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Active Capture Nodes</h4>
             <div style={{
                 background: 'rgba(255, 255, 255, 0.02)',
                 borderRadius: '24px',
@@ -210,7 +210,7 @@ const DashboardContent = () => {
                             </div>
                         ))
                     ) : (
-                        <div style={{ width: '100%', textAlign: 'center', padding: '40px', color: '#64748b', border: '1px dashed rgba(255, 255, 255, 0.1)', borderRadius: '16px' }}>
+                        <div style={{ width: '100%', textAlign: 'center', padding: '40px', color: '#94a3b8', border: '1px dashed rgba(255, 255, 255, 0.1)', borderRadius: '16px' }}>
                             No active camera nodes detected. Launch algorithm scripts to begin monitoring.
                         </div>
                     )}
@@ -335,7 +335,7 @@ const Dashboard = () => {
                                         activeTab === 'users' ? 'Identity Management' :
                                             'System Configuration'}
                         </h1>
-                        <p style={{ color: '#64748b', fontSize: '14px' }}>
+                        <p style={{ color: '#94a3b8', fontSize: '14px' }}>
                             {activeTab === 'overview' ? 'Real-time intelligence and node health monitoring' :
                                 activeTab === 'search' ? 'Cross-referencing face signatures across distributed nodes' :
                                     activeTab === 'history' ? 'Reviewing the global capture database' :

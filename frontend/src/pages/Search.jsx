@@ -14,6 +14,7 @@ const Search = () => {
     const [error, setError] = useState('');
     const [activeVideo, setActiveVideo] = useState(null); // URL of current video
     const [downloadingId, setDownloadingId] = useState(null);
+    const [topK, setTopK] = useState(50);
     
     // Time filter states
     const [timeRange, setTimeRange] = useState('all'); // all, today, week, month, custom
@@ -68,6 +69,7 @@ const Search = () => {
 
         const formData = new FormData();
         formData.append('file', selectedFile);
+        formData.append('topK', topK);
 
         const token = localStorage.getItem('token');
         try {
@@ -253,6 +255,23 @@ const Search = () => {
                                     ))}
                                 </div>
 
+                                <div className="limit-selector" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                    <span style={{ fontSize: '11px', color: '#94a3b8' }}>Limit:</span>
+                                    <select 
+                                        value={topK} 
+                                        onChange={(e) => setTopK(parseInt(e.target.value))}
+                                        style={{ 
+                                            background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                                            borderRadius: '8px', color: '#00d2ff', fontSize: '11px', padding: '4px 8px',
+                                            cursor: 'pointer', outline: 'none'
+                                        }}
+                                    >
+                                        <option value={50} style={{ background: '#0f172a' }}>Top 50</option>
+                                        <option value={100} style={{ background: '#0f172a' }}>Top 100</option>
+                                        <option value={200} style={{ background: '#0f172a' }}>Top 200 (All)</option>
+                                    </select>
+                                </div>
+
                                 {timeRange === 'custom' && (
                                     <div className="custom-date-range">
                                         <input
@@ -296,7 +315,7 @@ const Search = () => {
                                                     tick={{ fill: '#94a3b8' }}
                                                 />
                                                 <RechartsTooltip 
-                                                    cursor={{ fill: 'rgba(255,255,255,0.05)' }}
+                                                    cursor={{ fill: 'rgba(255, 255, 255, 0.05)' }}
                                                     contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px' }}
                                                 />
                                                 <Bar dataKey="count" fill="url(#barGradient)" radius={[0, 4, 4, 0]}>
@@ -368,12 +387,13 @@ const Search = () => {
                                             </div>
                                             {item.videoUrl && (
                                                 <button
-                                                    className="play-btn-small"
-                                                    title="Play original video"
-                                                    onClick={() => setActiveVideo(item.videoUrl)}
+                                                    className="download-btn-small"
+                                                    title="Download original video"
+                                                    onClick={() => handleDownloadVideo(item)}
+                                                    disabled={downloadingId === item.id}
                                                     style={{ marginLeft: 'auto' }}
                                                 >
-                                                    <Play size={18} fill="currentColor" />
+                                                    {downloadingId === item.id ? <Loader2 size={18} className="spinner" /> : <Download size={18} />}
                                                 </button>
                                             )}
                                         </div>
