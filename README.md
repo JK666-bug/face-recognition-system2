@@ -101,7 +101,8 @@ Face-Recognition-System/
    > **验证服务状态**：
    > - RabbitMQ 管理后台：`http://localhost:15672` (guest / guest)
    > - MinIO 对象存储：`http://localhost:30001` (minioadmin / minioadmin)
-
+注:milvus数据库的collection名称配置已经在application，剩下字段要重新手动配置
+ID,vector,嫌疑人name
 ---
 
 ### 第二步：启动前端 Web 界面
@@ -180,6 +181,8 @@ docker-compose down -v
 docker-compose up -d 重建
 docker-compose start 重启
 docker-compose stop
+
+注:若docker启动有问题，查看自己电脑是否安装过mysql80服务，要禁止服务，使得mysql服务器启动在docker而不是本地电脑
 
 3.开启终端
 backend\springboot\src\main\java\com\face\recognition\FaceRecognitionApplication.java
