@@ -59,7 +59,7 @@
     flex-direction: column;
     align-items: center;
     gap: 8px;
-    color: #64748b;
+    color: #94a3b8;
     text-align: center;
     padding: 12px;
 }
@@ -175,7 +175,7 @@
 }
 
 .date-separator {
-    color: #64748b;
+    color: #94a3b8;
     font-size: 12px;
 }
 
@@ -310,7 +310,7 @@
 
 .loc-time {
     font-size: 11px;
-    color: #64748b;
+    color: #94a3b8;
 }
 
 .flow-arrow {
@@ -322,7 +322,7 @@
 .timeline-title {
     font-size: 16px;
     font-weight: 600;
-    color: #64748b;
+    color: #94a3b8;
     margin-bottom: 24px;
     text-transform: uppercase;
     letter-spacing: 1px;
@@ -543,7 +543,7 @@
 .modal-footer p {
     margin: 0;
     font-size: 13px;
-    color: #64748b;
+    color: #94a3b8;
 }
 
 @keyframes rotate {

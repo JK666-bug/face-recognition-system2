@@ -50,7 +50,7 @@ public class FaceSearchService {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public List<SearchMatchDTO> searchByImage(MultipartFile file, String startTime, String endTime) throws Exception {
+    public List<SearchMatchDTO> searchByImage(MultipartFile file, Integer topK, String startTime, String endTime) throws Exception {
         // 1. 保存临时文件
         Path tempFile = Files.createTempFile("search_", ".jpg");
         file.transferTo(tempFile.toFile());
@@ -62,13 +62,19 @@ public class FaceSearchService {
             log.info("特征提取成功，维度: {}", embedding.size());
 
             // 3. 在 Milvus 中搜索
-            List<SearchMatchDTO> results = searchInMilvus(embedding);
+            List<SearchMatchDTO> results = searchInMilvus(embedding, topK);
             log.info("Milvus 搜索完成，找到 {} 个候选结果", results.size());
 
             // 4. 从 MinIO 补充详细信息并进行初步过滤
             List<SearchMatchDTO> responseList = new ArrayList<>();
             for (SearchMatchDTO match : results) {
                 populateMetadataFromMinio(match);
+                
+                // 过滤逻辑：如果 MinIO 中找不到对应图片（可能已被删除），则不返回该条结果
+                if (match.getImageBase64() == null || match.getImageBase64().isEmpty()) {
+                    log.warn("检测到遗留向量数据，但 MinIO 中图片已缺失，已跳过显示: {}", match.getId());
+                    continue;
+                }
                 
                 // 时间过滤逻辑
                 if (isWithinTimeRange(match.getTimestamp(), startTime, endTime)) {
@@ -173,14 +179,14 @@ public class FaceSearchService {
     @Autowired
     private SettingsService settingsService;
 
-    private List<SearchMatchDTO> searchInMilvus(List<Float> embedding) {
+    private List<SearchMatchDTO> searchInMilvus(List<Float> embedding, Integer topK) {
         List<List<Float>> searchVectors = List.of(embedding);
 
         SearchParam searchParam = SearchParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withMetricType(io.milvus.param.MetricType.COSINE)
                 .withOutFields(List.of("face_id"))
-                .withTopK(50)
+                .withTopK(topK != null ? topK : 50)
                 .withFloatVectors(searchVectors)
                 .withVectorFieldName("vector")
                 .withParams("{\"nprobe\":10}")

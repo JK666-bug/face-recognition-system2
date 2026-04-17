@@ -186,6 +186,7 @@ backend\springboot\src\main\java\com\face\recognition\FaceRecognitionApplication
 
 4. 开启识别算法
 python backend\algorithms\demo.py --source backend\algorithms\media\face3.mp4 --location home
+python backend\algorithms\demo.py --location meetingroom
 
 5. 前端
 (.venv) PS D:\前后端开发\前端\vs code 代码\face-recognition-system\frontend> npm run dev

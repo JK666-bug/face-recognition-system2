@@ -39,6 +39,11 @@ public class FaceManagementController {
         managementService.deleteCapture(id);
     }
 
+    @DeleteMapping("/captures/all")
+    public void deleteAllCaptures() {
+        managementService.deleteAllCaptures();
+    }
+
     @GetMapping("/videos/{videoId}")
     public ResponseEntity<Resource> downloadVideo(@PathVariable String videoId) {
         try {

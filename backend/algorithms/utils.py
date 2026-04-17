@@ -8,6 +8,7 @@ import numpy as np
 from typing import List, Dict, Tuple
 import re
 from pathlib import Path
+import time
 
 
 def get_next_video_id(directory: Path) -> int:
@@ -164,3 +165,33 @@ def calculate_similarity(feat1, feat2) -> float:
     a = np.array(feat1)
     b = np.array(feat2)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-6)
+
+
+def calculate_face_orientation(keypoints) -> float:
+    """
+    根据人脸 5 个关键点计算偏转角评分 (Yaw Score)。
+    数值越接近 0 表示正脸（鼻子在两眼中心），数值越大表示侧脸越严重。
+    keypoints: 坐标数组，通常为 [[lx, ly], [rx, ry], [nx, ny], ...]
+    返回: 偏离比率 (0.0 ~ 0.5+)
+    """
+    if keypoints is None or len(keypoints) < 3:
+        return 1.0 # 无法判断，视为极差
+    
+    # 提取 x 坐标 (前三点通常是：左眼、右眼、鼻子)
+    try:
+        lx = keypoints[0][0] # 左眼 X
+        rx = keypoints[1][0] # 右眼 X
+        nx = keypoints[2][0] # 鼻子 X
+        
+        # 计算眼睛间距
+        eye_dist = abs(rx - lx)
+        if eye_dist < 1e-5: 
+            return 1.0
+            
+        # 计算鼻子相对于左眼的水平比例，正脸时应接近 0.5
+        ratio = abs(nx - lx) / eye_dist
+        # 归一化偏移量：0.0 表示绝对正脸，0.5+ 表示侧脸
+        yaw_score = abs(ratio - 0.5)
+        return float(yaw_score)
+    except Exception:
+        return 1.0

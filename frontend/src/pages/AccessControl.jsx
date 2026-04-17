@@ -107,7 +107,7 @@ const AccessControl = () => {
             <div style={{ padding: '80px', textAlign: 'center' }}>
                 <ShieldAlert size={64} color="#f43f5e" style={{ margin: '0 auto 24px' }} />
                 <h2 style={{ color: 'white', fontSize: '24px', fontWeight: 'bold' }}>Access Denied</h2>
-                <p style={{ color: '#64748b', marginTop: '12px' }}>Only Super Administrators can access the identity management console.</p>
+                <p style={{ color: '#94a3b8', marginTop: '12px' }}>Only Super Administrators can access the identity management console.</p>
             </div>
         );
     }
@@ -116,7 +116,7 @@ const AccessControl = () => {
         <div style={{ padding: '30px' }}>
             <div style={{ marginBottom: '40px' }}>
                 <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Access Control Center</h2>
-                <p style={{ color: '#64748b' }}>Manage system administrators, provision new accounts, and adjust privilege levels.</p>
+                <p style={{ color: '#94a3b8' }}>Manage system administrators, provision new accounts, and adjust privilege levels.</p>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: '32px', alignItems: 'start' }}>
@@ -145,7 +145,7 @@ const AccessControl = () => {
                                     required
                                     style={{ 
                                         width: '100%', padding: '12px 12px 12px 38px', background: 'rgba(0,0,0,0.2)',
-                                        border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: 'white'
+                                        border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: 'white'
                                     }}
                                 />
                             </div>
@@ -163,7 +163,7 @@ const AccessControl = () => {
                                     required
                                     style={{ 
                                         width: '100%', padding: '12px 12px 12px 38px', background: 'rgba(0,0,0,0.2)',
-                                        border: '1px solid rgba(255,255,255,0.1)', borderRadius: '10px', color: 'white'
+                                        border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '10px', color: 'white'
                                     }}
                                 />
                             </div>
@@ -197,67 +197,74 @@ const AccessControl = () => {
                     </div>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                        {users.map(user => (
-                            <div key={user.id} style={{ 
-                                padding: '16px', background: 'rgba(255,255,255,0.02)', 
-                                border: '1px solid rgba(255,255,255,0.05)', borderRadius: '16px',
-                                display: 'flex', alignItems: 'center', justifyContent: 'space-between'
-                            }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                    <div style={{ 
-                                        width: '40px', height: '40px', borderRadius: '50%', 
-                                        background: user.role === 'SUPER_ADMIN' ? '#a855f7' : '#475569',
-                                        display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white'
-                                    }}>
-                                        <UserIcon size={20} />
+                        {users.length > 0 ? (
+                            users.map(user => (
+                                <div key={user.id} style={{ 
+                                    padding: '16px', background: 'rgba(255,255,255,0.02)', 
+                                    border: '1px solid rgba(255, 255, 255, 0.05)', borderRadius: '16px',
+                                    display: 'flex', alignItems: 'center', justifyContent: 'space-between'
+                                }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        <div style={{ 
+                                            width: '40px', height: '40px', borderRadius: '50%', 
+                                            background: user.role === 'SUPER_ADMIN' ? '#a855f7' : '#475569',
+                                            display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white'
+                                        }}>
+                                            <UserIcon size={20} />
+                                        </div>
+                                        <div>
+                                            <div style={{ fontWeight: '700' }}>{user.username}</div>
+                                            <div style={{ fontSize: '12px', color: '#94a3b8' }}>Account ID: {user.id}</div>
+                                        </div>
                                     </div>
-                                    <div>
-                                        <div style={{ fontWeight: '700' }}>{user.username}</div>
-                                        <div style={{ fontSize: '12px', color: '#64748b' }}>Account ID: {user.id}</div>
+    
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                                        <span style={{ 
+                                            padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: 'bold',
+                                            background: user.role === 'SUPER_ADMIN' ? 'rgba(168, 85, 247, 0.1)' : 'rgba(100, 116, 139, 0.1)',
+                                            color: user.role === 'SUPER_ADMIN' ? '#a855f7' : '#94a3b8',
+                                            border: `1px solid ${user.role === 'SUPER_ADMIN' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(100, 116, 139, 0.2)'}`
+                                        }}>
+                                            {user.role}
+                                        </span>
+                                        
+                                        {user.role === 'ADMIN' && (
+                                            <>
+                                                <button 
+                                                    onClick={() => handlePromote(user.id)}
+                                                    style={{ 
+                                                        padding: '8px 12px', background: 'rgba(0, 210, 255, 0.1)',
+                                                        border: '1px solid rgba(0, 210, 255, 0.2)', borderRadius: '8px',
+                                                        color: '#00d2ff', cursor: 'pointer', fontSize: '12px',
+                                                        display: 'flex', alignItems: 'center', gap: '6px'
+                                                    }}
+                                                >
+                                                    <UserCheck size={14} />
+                                                    Promote
+                                                </button>
+    
+                                                <button 
+                                                    onClick={() => handleDeleteUser(user.id, user.username)}
+                                                    style={{ 
+                                                        padding: '8px', background: 'rgba(244, 63, 94, 0.1)',
+                                                        border: '1px solid rgba(244, 63, 94, 0.2)', borderRadius: '8px',
+                                                        color: '#f43f5e', cursor: 'pointer'
+                                                    }}
+                                                    title="Delete User"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
+                                            </>
+                                        )}
                                     </div>
                                 </div>
-
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                                    <span style={{ 
-                                        padding: '4px 10px', borderRadius: '6px', fontSize: '10px', fontWeight: 'bold',
-                                        background: user.role === 'SUPER_ADMIN' ? 'rgba(168, 85, 247, 0.1)' : 'rgba(100, 116, 139, 0.1)',
-                                        color: user.role === 'SUPER_ADMIN' ? '#a855f7' : '#94a3b8',
-                                        border: `1px solid ${user.role === 'SUPER_ADMIN' ? 'rgba(168, 85, 247, 0.2)' : 'rgba(100, 116, 139, 0.2)'}`
-                                    }}>
-                                        {user.role}
-                                    </span>
-                                    
-                                    {user.role === 'ADMIN' && (
-                                        <>
-                                            <button 
-                                                onClick={() => handlePromote(user.id)}
-                                                style={{ 
-                                                    padding: '8px 12px', background: 'rgba(0, 210, 255, 0.1)',
-                                                    border: '1px solid rgba(0, 210, 255, 0.2)', borderRadius: '8px',
-                                                    color: '#00d2ff', cursor: 'pointer', fontSize: '12px',
-                                                    display: 'flex', alignItems: 'center', gap: '6px'
-                                                }}
-                                            >
-                                                <UserCheck size={14} />
-                                                Promote
-                                            </button>
-
-                                            <button 
-                                                onClick={() => handleDeleteUser(user.id, user.username)}
-                                                style={{ 
-                                                    padding: '8px', background: 'rgba(244, 63, 94, 0.1)',
-                                                    border: '1px solid rgba(244, 63, 94, 0.2)', borderRadius: '8px',
-                                                    color: '#f43f5e', cursor: 'pointer'
-                                                }}
-                                                title="Delete User"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        </>
-                                    )}
-                                </div>
+                            ))
+                        ) : (
+                            <div style={{ textAlign: 'center', padding: '40px', color: '#475569', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '16px' }}>
+                                <ShieldAlert size={32} style={{ marginBottom: '12px', opacity: 0.5 }} />
+                                <div style={{ fontSize: '14px' }}>No other administrators found.</div>
                             </div>
-                        ))}
+                        )}
                     </div>
                 </div>
             </div>

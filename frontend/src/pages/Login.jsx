@@ -58,7 +58,7 @@ const Login = ({ onLogin }) => {
                         <Shield size={32} color="white" />
                     </div>
                     <h1 style={{ color: 'white', fontSize: '24px', fontWeight: '800', marginBottom: '8px' }}>FaceGuard AI</h1>
-                    <p style={{ color: '#64748b', fontSize: '14px' }}>Enterprise Surveillance & Analysis</p>
+                    <p style={{ color: '#94a3b8', fontSize: '14px' }}>Enterprise Surveillance & Analysis</p>
                 </div>
 
                 <form onSubmit={handleSubmit}>
@@ -73,7 +73,7 @@ const Login = ({ onLogin }) => {
                                 placeholder="Username"
                                 style={{ 
                                     width: '100%', padding: '14px 16px 14px 48px', background: 'rgba(255,255,255,0.02)',
-                                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'white',
+                                    border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', color: 'white',
                                     outline: 'none', transition: 'all 0.3s'
                                 }}
                                 required
@@ -92,7 +92,7 @@ const Login = ({ onLogin }) => {
                                 placeholder="••••••••"
                                 style={{ 
                                     width: '100%', padding: '14px 16px 14px 48px', background: 'rgba(255,255,255,0.02)',
-                                    border: '1px solid rgba(255,255,255,0.1)', borderRadius: '12px', color: 'white',
+                                    border: '1px solid rgba(255, 255, 255, 0.1)', borderRadius: '12px', color: 'white',
                                     outline: 'none', transition: 'all 0.3s'
                                 }}
                                 required
