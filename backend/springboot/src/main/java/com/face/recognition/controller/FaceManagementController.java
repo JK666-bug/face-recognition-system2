@@ -1,6 +1,7 @@
 package com.face.recognition.controller;
 
 import com.face.recognition.dto.CaptureRecordDTO;
+import com.face.recognition.dto.PeopleRecordDTO;
 import com.face.recognition.model.User;
 import com.face.recognition.repository.UserRepository;
 import com.face.recognition.service.FaceManagementService;
@@ -42,6 +43,56 @@ public class FaceManagementController {
     @DeleteMapping("/captures/all")
     public void deleteAllCaptures() {
         managementService.deleteAllCaptures();
+    }
+
+    @GetMapping("/people")
+    public List<PeopleRecordDTO> listPeopleLibrary() {
+        return managementService.listPeopleLibrary();
+    }
+
+    @PostMapping(value = "/people/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<PeopleRecordDTO> uploadPeoplePhoto(
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
+            @RequestParam(value = "suspect", defaultValue = "false") boolean suspect) {
+        try {
+            PeopleRecordDTO created = managementService.createPersonFromUpload(file.getBytes(), suspect);
+            return ResponseEntity.ok(created);
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().build();
+        }
+    }
+
+    @PostMapping("/people/{peopleId}/suspect")
+    public ResponseEntity<?> setSuspect(
+            @PathVariable String peopleId,
+            @RequestParam("value") boolean value) {
+        try {
+            managementService.setPeopleSuspect(peopleId, value);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @DeleteMapping("/people/{peopleId}")
+    public ResponseEntity<?> deletePerson(@PathVariable String peopleId) {
+        try {
+            managementService.deletePerson(peopleId);
+            return ResponseEntity.ok().build();
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PostMapping(value = "/people/{peopleId}/replace-photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<?> replacePersonPhoto(
+            @PathVariable String peopleId,
+            @RequestParam("file") org.springframework.web.multipart.MultipartFile file) {
+        try {
+            return ResponseEntity.ok(managementService.replacePersonPhoto(peopleId, file.getBytes()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
     }
 
     @GetMapping("/videos/{videoId}")

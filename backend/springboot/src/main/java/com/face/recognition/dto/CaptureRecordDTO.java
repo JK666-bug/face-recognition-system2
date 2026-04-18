@@ -11,9 +11,12 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class CaptureRecordDTO {
     private String id;
+    private String peopleId;
     private String imageBase64;
     private String timestamp;
     private String location;
     private String videoId;
     private String videoUrl;
+    private boolean alertHit;
+    private String alertPeopleId;
 }

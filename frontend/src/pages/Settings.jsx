@@ -4,7 +4,9 @@ import { Save, RefreshCcw, ShieldCheck, Target, AlertCircle, CheckCircle2 } from
 const Settings = () => {
     const [settings, setSettings] = useState({
         captureConfidence: 0.65,
-        searchThreshold: 0.70
+        searchThreshold: 0.70,
+        peopleMatchThreshold: 0.80,
+        alertMatchThreshold: 0.85
     });
     const [loading, setLoading] = useState(false);
     const [status, setStatus] = useState({ type: '', message: '' });
@@ -149,6 +151,92 @@ const Settings = () => {
                             textAlign: 'center'
                         }}>
                             {settings.searchThreshold.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* People Match Threshold */}
+                <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    borderRadius: '24px',
+                    padding: '32px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    backdropFilter: 'blur(10px)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                        <div style={{ width: '48px', height: '48px', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <Target size={24} color="#3b82f6" />
+                        </div>
+                        <div>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600' }}>People Match Threshold (COS)</h3>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>用于判断是否已被人物底库记录（people_embeddings）。</p>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                        <input
+                            type="range"
+                            min="0.1"
+                            max="0.99"
+                            step="0.01"
+                            value={settings.peopleMatchThreshold}
+                            onChange={(e) => setSettings({ ...settings, peopleMatchThreshold: parseFloat(e.target.value) })}
+                            style={{ flex: 1, accentColor: '#3b82f6' }}
+                        />
+                        <div style={{
+                            padding: '8px 16px',
+                            background: 'rgba(59, 130, 246, 0.1)',
+                            borderRadius: '10px',
+                            color: '#3b82f6',
+                            fontSize: '18px',
+                            fontWeight: '700',
+                            minWidth: '60px',
+                            textAlign: 'center'
+                        }}>
+                            {settings.peopleMatchThreshold.toFixed(2)}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Alert Threshold */}
+                <div style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    borderRadius: '24px',
+                    padding: '32px',
+                    border: '1px solid rgba(255, 255, 255, 0.08)',
+                    backdropFilter: 'blur(10px)'
+                }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
+                        <div style={{ width: '48px', height: '48px', background: 'rgba(244, 63, 94, 0.1)', borderRadius: '14px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                            <AlertCircle size={24} color="#f43f5e" />
+                        </div>
+                        <div>
+                            <h3 style={{ fontSize: '18px', fontWeight: '600' }}>Alert Threshold (COS)</h3>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>用于嫌疑人预警匹配（alert_embeddings）。</p>
+                        </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+                        <input
+                            type="range"
+                            min="0.1"
+                            max="0.99"
+                            step="0.01"
+                            value={settings.alertMatchThreshold}
+                            onChange={(e) => setSettings({ ...settings, alertMatchThreshold: parseFloat(e.target.value) })}
+                            style={{ flex: 1, accentColor: '#f43f5e' }}
+                        />
+                        <div style={{
+                            padding: '8px 16px',
+                            background: 'rgba(244, 63, 94, 0.1)',
+                            borderRadius: '10px',
+                            color: '#f43f5e',
+                            fontSize: '18px',
+                            fontWeight: '700',
+                            minWidth: '60px',
+                            textAlign: 'center'
+                        }}>
+                            {settings.alertMatchThreshold.toFixed(2)}
                         </div>
                     </div>
                 </div>

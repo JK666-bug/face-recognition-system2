@@ -136,7 +136,13 @@ class FaceDetector:
                 if save_paths:
                     save_path = save_paths[0]
                     if feature_extractor_callback:
-                        feature_extractor_callback(best_face_img, save_path, video_id=video_id)
+                        feature_extractor_callback(
+                            best_face_img,
+                            save_path,
+                            video_id=video_id,
+                            quality_score=float(conf),
+                            capture_reason=reason
+                        )
                     known_faces_data.append({'id': tid, 'reason': reason})
                     print(f"📡 [{reason}] 抓拍推送! [ID: {tid}] (置信度: {conf:.2f}) (序列: {face_counter[0]})")
                     face_counter[0] += 1

@@ -10,6 +10,8 @@ public class FaceDataMessage {
     private String timestamp;
     private String location;
     private String video_id;
+    private Double quality_score;
+    private String capture_reason;
     private String type; // FACE or VIDEO
     private String video_base64; // Only for VIDEO type
 }

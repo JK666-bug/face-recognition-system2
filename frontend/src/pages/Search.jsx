@@ -70,6 +70,8 @@ const Search = () => {
         const formData = new FormData();
         formData.append('file', selectedFile);
         formData.append('topK', topK);
+        if (startTime) formData.append('startTime', startTime);
+        if (endTime) formData.append('endTime', endTime);
 
         const token = localStorage.getItem('token');
         try {
@@ -384,6 +386,15 @@ const Search = () => {
                                                 <div className="score-badge">
                                                     Similarity: {(item.score * 100).toFixed(2)}%
                                                 </div>
+                                                <div className="info-row">
+                                                    <span style={{ color: '#94a3b8' }}>People ID:</span>
+                                                    <span>{item.peopleId || 'Unknown'}</span>
+                                                </div>
+                                                {item.alertHit && (
+                                                    <div className="score-badge" style={{ background: 'rgba(244, 63, 94, 0.15)', color: '#f43f5e' }}>
+                                                        ALERT: suspect matched {item.alertPeopleId || item.peopleId}
+                                                    </div>
+                                                )}
                                             </div>
                                             {item.videoUrl && (
                                                 <button

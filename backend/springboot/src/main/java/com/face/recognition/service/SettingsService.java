@@ -46,6 +46,8 @@ public class SettingsService {
         currentSettings = SettingsDTO.builder()
                 .captureConfidence(0.65f)
                 .searchThreshold(0.70f)
+                .peopleMatchThreshold(0.80f)
+                .alertMatchThreshold(0.85f)
                 .build();
     }
 
@@ -54,6 +56,12 @@ public class SettingsService {
     }
 
     public void saveSettings(SettingsDTO settings) {
+        if (settings.getPeopleMatchThreshold() <= 0) {
+            settings.setPeopleMatchThreshold(0.80f);
+        }
+        if (settings.getAlertMatchThreshold() <= 0) {
+            settings.setAlertMatchThreshold(0.85f);
+        }
         this.currentSettings = settings;
         try {
             objectMapper.writeValue(new File(configPath), settings);
@@ -65,5 +73,13 @@ public class SettingsService {
 
     public float getSearchThreshold() {
         return currentSettings.getSearchThreshold();
+    }
+
+    public float getPeopleMatchThreshold() {
+        return currentSettings.getPeopleMatchThreshold();
+    }
+
+    public float getAlertMatchThreshold() {
+        return currentSettings.getAlertMatchThreshold();
     }
 }

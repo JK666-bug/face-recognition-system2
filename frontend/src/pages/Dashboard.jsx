@@ -17,6 +17,7 @@ import Search from './Search';
 import SettingsPage from './Settings';
 import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
+import PeopleLibrary from './PeopleLibrary';
 
 const DashboardContent = () => {
     const [stats, setStats] = useState({
@@ -28,6 +29,7 @@ const DashboardContent = () => {
         activeLocations: [],
         recentCaptures: []
     });
+    const [liveAlerts, setLiveAlerts] = useState([]);
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -61,6 +63,22 @@ const DashboardContent = () => {
         fetchStats();
         const interval = setInterval(fetchStats, 5000); // Poll every 5 seconds
         return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        const ws = new WebSocket('ws://localhost:8080/ws-alerts');
+        ws.onmessage = (event) => {
+            try {
+                const alert = JSON.parse(event.data);
+                if (alert.type === 'SUSPECT_ALERT') {
+                    setLiveAlerts(prev => [alert, ...prev].slice(0, 10));
+                }
+            } catch (e) {
+                console.error('Failed to parse websocket alert:', e);
+            }
+        };
+        ws.onerror = (err) => console.error('Alert websocket error:', err);
+        return () => ws.close();
     }, []);
 
     const getStatusColor = (status) => {
@@ -130,6 +148,49 @@ const DashboardContent = () => {
                         </div>
                     </div>
                 ))}
+            </div>
+
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#fda4af', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>Live Suspect Alerts</h4>
+            <div style={{
+                background: 'rgba(244, 63, 94, 0.08)',
+                borderRadius: '24px',
+                padding: '20px',
+                border: '1px solid rgba(244, 63, 94, 0.25)',
+                marginBottom: '30px'
+            }}>
+                {liveAlerts.length === 0 ? (
+                    <div style={{ color: '#fda4af', opacity: 0.8 }}>No live suspect alerts yet.</div>
+                ) : (
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                        {liveAlerts.map((alert, idx) => (
+                            <div key={`${alert.faceId}-${idx}`} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                background: 'rgba(15,23,42,0.6)',
+                                border: '1px solid rgba(244,63,94,0.2)',
+                                borderRadius: '12px',
+                                padding: '10px'
+                            }}>
+                                {alert.imageBase64 && (
+                                    <img
+                                        src={`data:image/jpeg;base64,${alert.imageBase64}`}
+                                        alt="alert"
+                                        style={{ width: '52px', height: '52px', borderRadius: '8px', objectFit: 'cover' }}
+                                    />
+                                )}
+                                <div style={{ fontSize: '12px' }}>
+                                    <div style={{ color: '#fda4af', fontWeight: 700 }}>
+                                        ALERT: matched suspect {alert.alertPeopleId || alert.peopleId}
+                                    </div>
+                                    <div style={{ color: '#cbd5e1' }}>
+                                        Location: {alert.location || 'Unknown'} | Time: {alert.timestamp || 'Unknown'}
+                                    </div>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Latest Intelligence Activity</h4>
@@ -234,6 +295,7 @@ const Dashboard = () => {
     const navItems = [
         { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview', visible: true },
         { id: 'search', icon: SearchIcon, label: 'Trajectory Search', visible: true },
+        { id: 'people', icon: Users, label: 'People Library', visible: true },
         { id: 'history', icon: History, label: 'Dataset', visible: user.role === 'SUPER_ADMIN' },
         { id: 'users', icon: Users, label: 'Access Control', visible: user.role === 'SUPER_ADMIN' },
         { id: 'settings', icon: Settings, label: 'Settings', visible: user.role === 'SUPER_ADMIN' }
@@ -331,6 +393,7 @@ const Dashboard = () => {
                         <h1 style={{ fontSize: '26px', fontWeight: '700', marginBottom: '4px' }}>
                             {activeTab === 'overview' ? 'Command Center' :
                                 activeTab === 'search' ? 'Trajectory Analysis' :
+                                    activeTab === 'people' ? 'People Library' :
                                     activeTab === 'history' ? 'Dataset Explorer' :
                                         activeTab === 'users' ? 'Identity Management' :
                                             'System Configuration'}
@@ -338,6 +401,7 @@ const Dashboard = () => {
                         <p style={{ color: '#94a3b8', fontSize: '14px' }}>
                             {activeTab === 'overview' ? 'Real-time intelligence and node health monitoring' :
                                 activeTab === 'search' ? 'Cross-referencing face signatures across distributed nodes' :
+                                    activeTab === 'people' ? 'De-duplicated identity base and suspect controls' :
                                     activeTab === 'history' ? 'Reviewing the global capture database' :
                                         activeTab === 'users' ? 'Managing administrative access and privileges' :
                                             'Fine-tuning system precision and metadata'}
@@ -362,6 +426,8 @@ const Dashboard = () => {
                         <DashboardContent />
                     ) : activeTab === 'search' ? (
                         <Search />
+                    ) : activeTab === 'people' ? (
+                        <PeopleLibrary />
                     ) : activeTab === 'history' ? (
                         <HistoryManager />
                     ) : activeTab === 'users' ? (

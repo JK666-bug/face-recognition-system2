@@ -99,6 +99,26 @@ public class FaceSearchService {
         }
     }
 
+    public List<Float> extractFeatureFromUpload(MultipartFile file) throws Exception {
+        Path tempFile = Files.createTempFile("people_upload_", ".jpg");
+        file.transferTo(tempFile.toFile());
+        try {
+            return extractFeatureWithPython(tempFile.toAbsolutePath().toString());
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
+    public List<Float> extractFeatureFromBytes(byte[] imageBytes, String suffix) throws Exception {
+        Path tempFile = Files.createTempFile("people_bytes_", suffix == null ? ".jpg" : suffix);
+        Files.write(tempFile, imageBytes);
+        try {
+            return extractFeatureWithPython(tempFile.toAbsolutePath().toString());
+        } finally {
+            Files.deleteIfExists(tempFile);
+        }
+    }
+
     private boolean isWithinTimeRange(String timestamp, String start, String end) {
         // 如果没有传入过滤条件，默认通过
         if ((start == null || start.isEmpty()) && (end == null || end.isEmpty())) {
@@ -182,17 +202,12 @@ public class FaceSearchService {
     private List<SearchMatchDTO> searchInMilvus(List<Float> embedding, Integer topK) {
         List<List<Float>> searchVectors = List.of(embedding);
 
-        SearchParam searchParam = SearchParam.newBuilder()
-                .withCollectionName(collectionName)
-                .withMetricType(io.milvus.param.MetricType.COSINE)
-                .withOutFields(List.of("face_id"))
-                .withTopK(topK != null ? topK : 50)
-                .withFloatVectors(searchVectors)
-                .withVectorFieldName("vector")
-                .withParams("{\"nprobe\":10}")
-                .build();
-
-        R<SearchResults> response = milvusClient.search(searchParam);
+        R<SearchResults> response = runSearch(topK, searchVectors, true);
+        boolean includePeopleField = true;
+        if (response.getStatus() != R.Status.Success.getCode()) {
+            response = runSearch(topK, searchVectors, false);
+            includePeopleField = false;
+        }
         if (response.getStatus() != R.Status.Success.getCode()) {
             throw new RuntimeException("Milvus search failed: " + response.getMessage());
         }
@@ -210,6 +225,7 @@ public class FaceSearchService {
             if (idScore.getScore() >= threshold) {
                 matches.add(SearchMatchDTO.builder()
                         .id(idScore.getStrID())
+                        .peopleId(includePeopleField ? extractStringField(wrapper, "people_id", iFromIdScores(idScores, idScore)) : null)
                         .score(idScore.getScore())
                         .build());
             }
@@ -237,6 +253,10 @@ public class FaceSearchService {
             
             match.setLocation(location);
             match.setTimestamp(timestamp);
+            match.setPeopleId(meta.getOrDefault("people_id", match.getPeopleId()));
+            String alertHit = meta.getOrDefault("alert_hit", "false");
+            match.setAlertHit(Boolean.parseBoolean(alertHit));
+            match.setAlertPeopleId(meta.get("alert_people_id"));
 
             // 1.1 获取关联视频 ID 并生成预签名 URL
             String videoId = meta.get("video_id");
@@ -272,5 +292,38 @@ public class FaceSearchService {
         } catch (Exception e) {
             log.warn("无法从 MinIO 获取数据 [ID: {}]: {}", match.getId(), e.getMessage());
         }
+    }
+
+    private int iFromIdScores(List<io.milvus.response.SearchResultsWrapper.IDScore> idScores,
+                              io.milvus.response.SearchResultsWrapper.IDScore current) {
+        return idScores.indexOf(current);
+    }
+
+    private String extractStringField(io.milvus.response.SearchResultsWrapper wrapper, String fieldName, int idx) {
+        try {
+            List<?> values = wrapper.getFieldData(fieldName, 0);
+            if (idx >= 0 && idx < values.size()) {
+                Object value = values.get(idx);
+                return value == null ? null : String.valueOf(value);
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private R<SearchResults> runSearch(Integer topK, List<List<Float>> searchVectors, boolean includePeopleField) {
+        SearchParam.Builder builder = SearchParam.newBuilder()
+                .withCollectionName(collectionName)
+                .withMetricType(io.milvus.param.MetricType.COSINE)
+                .withTopK(topK != null ? topK : 50)
+                .withFloatVectors(searchVectors)
+                .withVectorFieldName("vector")
+                .withParams("{\"nprobe\":10}");
+        if (includePeopleField) {
+            builder.withOutFields(List.of("face_id", "people_id"));
+        } else {
+            builder.withOutFields(List.of("face_id"));
+        }
+        return milvusClient.search(builder.build());
     }
 }
