@@ -19,4 +19,6 @@ public class SearchMatchDTO {
     private String videoUrl; // 关联视频的预签名播放链接
     private boolean alertHit;
     private String alertPeopleId;
+    /** MinIO face object: library upload / replace-photo, excluded from trajectory & image search UI */
+    private boolean manualUpload;
 }

@@ -6,6 +6,7 @@ import com.face.recognition.model.User;
 import com.face.recognition.repository.UserRepository;
 import com.face.recognition.service.FaceManagementService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
@@ -45,11 +46,14 @@ public class FaceManagementController {
         managementService.deleteAllCaptures();
     }
 
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @GetMapping("/people")
-    public List<PeopleRecordDTO> listPeopleLibrary() {
-        return managementService.listPeopleLibrary();
+    public List<PeopleRecordDTO> listPeopleLibrary(
+            @RequestParam(value = "peopleId", required = false) String peopleId) {
+        return managementService.listPeopleLibrary(peopleId);
     }
 
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @PostMapping(value = "/people/upload", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<PeopleRecordDTO> uploadPeoplePhoto(
             @RequestParam("file") org.springframework.web.multipart.MultipartFile file,
@@ -62,6 +66,7 @@ public class FaceManagementController {
         }
     }
 
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @PostMapping("/people/{peopleId}/suspect")
     public ResponseEntity<?> setSuspect(
             @PathVariable String peopleId,
@@ -74,6 +79,22 @@ public class FaceManagementController {
         }
     }
 
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
+    @PostMapping("/people/{peopleId}/merge")
+    public ResponseEntity<?> mergePeople(
+            @PathVariable String peopleId,
+            @RequestParam("targetPeopleId") String targetPeopleId) {
+        try {
+            managementService.mergePeople(peopleId, targetPeopleId);
+            return ResponseEntity.ok().build();
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(e.getMessage());
+        }
+    }
+
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @DeleteMapping("/people/{peopleId}")
     public ResponseEntity<?> deletePerson(@PathVariable String peopleId) {
         try {
@@ -84,6 +105,7 @@ public class FaceManagementController {
         }
     }
 
+    @PreAuthorize("hasAuthority('SUPER_ADMIN')")
     @PostMapping(value = "/people/{peopleId}/replace-photo", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<?> replacePersonPhoto(
             @PathVariable String peopleId,

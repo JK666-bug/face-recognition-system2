@@ -1,6 +1,7 @@
 package com.face.recognition.service;
 
 import com.face.recognition.dto.SearchMatchDTO;
+import com.face.recognition.util.MinioMetadataFlags;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.milvus.client.MilvusServiceClient;
@@ -42,6 +43,9 @@ public class FaceSearchService {
     @Value("${spring.minio.bucketName}")
     private String bucketName;
 
+    @Value("${spring.minio.peopleBucketName:people}")
+    private String peopleBucketName;
+
     @Value("${spring.milvus.searchThreshold:0.90}")
     private float searchThreshold;
 
@@ -75,7 +79,10 @@ public class FaceSearchService {
                     log.warn("检测到遗留向量数据，但 MinIO 中图片已缺失，已跳过显示: {}", match.getId());
                     continue;
                 }
-                
+                if (match.isManualUpload()) {
+                    continue;
+                }
+
                 // 时间过滤逻辑
                 if (isWithinTimeRange(match.getTimestamp(), startTime, endTime)) {
                     responseList.add(match);
@@ -117,6 +124,69 @@ public class FaceSearchService {
         } finally {
             Files.deleteIfExists(tempFile);
         }
+    }
+
+    public List<SearchMatchDTO> searchByPeopleId(String peopleId, String startTime, String endTime) {
+        if (peopleId == null || peopleId.isBlank()) {
+            return List.of();
+        }
+
+        List<SearchMatchDTO> results = new ArrayList<>();
+        try {
+            Iterable<io.minio.Result<io.minio.messages.Item>> objects = minioClient.listObjects(
+                    io.minio.ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
+
+            for (io.minio.Result<io.minio.messages.Item> objectResult : objects) {
+                io.minio.messages.Item item = objectResult.get();
+                if (item.isDir() || !item.objectName().endsWith(".jpg")) {
+                    continue;
+                }
+
+                try {
+                    String id = item.objectName().replace(".jpg", "");
+                    StatObjectResponse stat = minioClient.statObject(
+                            StatObjectArgs.builder().bucket(bucketName).object(item.objectName()).build());
+                    Map<String, String> meta = stat.userMetadata();
+                    String recordPeopleId = meta.getOrDefault("people_id",
+                            meta.getOrDefault("x-amz-meta-people_id", ""));
+                    if (!peopleId.equals(recordPeopleId)) {
+                        continue;
+                    }
+                    if (MinioMetadataFlags.isManualUpload(meta)) {
+                        continue;
+                    }
+
+                    SearchMatchDTO dto = SearchMatchDTO.builder()
+                            .id(id)
+                            .peopleId(recordPeopleId)
+                            .build();
+                    populateMetadataFromMinio(dto);
+
+                    if (dto.getImageBase64() == null || dto.getImageBase64().isEmpty()) {
+                        continue;
+                    }
+
+                    if (isWithinTimeRange(dto.getTimestamp(), startTime, endTime)) {
+                        results.add(dto);
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to load capture for peopleId {}: {}", peopleId, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to search trajectory by peopleId: " + peopleId, e);
+        }
+
+        results.sort((a, b) -> {
+            if (a.getTimestamp() == null || "Unknown".equals(a.getTimestamp())) {
+                return 1;
+            }
+            if (b.getTimestamp() == null || "Unknown".equals(b.getTimestamp())) {
+                return -1;
+            }
+            return b.getTimestamp().compareTo(a.getTimestamp());
+        });
+        return results;
     }
 
     private boolean isWithinTimeRange(String timestamp, String start, String end) {
@@ -202,12 +272,7 @@ public class FaceSearchService {
     private List<SearchMatchDTO> searchInMilvus(List<Float> embedding, Integer topK) {
         List<List<Float>> searchVectors = List.of(embedding);
 
-        R<SearchResults> response = runSearch(topK, searchVectors, true);
-        boolean includePeopleField = true;
-        if (response.getStatus() != R.Status.Success.getCode()) {
-            response = runSearch(topK, searchVectors, false);
-            includePeopleField = false;
-        }
+        R<SearchResults> response = runSearch(topK, searchVectors);
         if (response.getStatus() != R.Status.Success.getCode()) {
             throw new RuntimeException("Milvus search failed: " + response.getMessage());
         }
@@ -225,7 +290,7 @@ public class FaceSearchService {
             if (idScore.getScore() >= threshold) {
                 matches.add(SearchMatchDTO.builder()
                         .id(idScore.getStrID())
-                        .peopleId(includePeopleField ? extractStringField(wrapper, "people_id", iFromIdScores(idScores, idScore)) : null)
+                        .peopleId(null)
                         .score(idScore.getScore())
                         .build());
             }
@@ -253,10 +318,13 @@ public class FaceSearchService {
             
             match.setLocation(location);
             match.setTimestamp(timestamp);
-            match.setPeopleId(meta.getOrDefault("people_id", match.getPeopleId()));
-            String alertHit = meta.getOrDefault("alert_hit", "false");
-            match.setAlertHit(Boolean.parseBoolean(alertHit));
-            match.setAlertPeopleId(meta.get("alert_people_id"));
+            String pid = meta.get("people_id");
+            if (pid == null || pid.isBlank()) {
+                pid = meta.get("x-amz-meta-people_id");
+            }
+            match.setPeopleId(pid != null && !pid.isBlank() ? pid : match.getPeopleId());
+            match.setManualUpload(MinioMetadataFlags.isManualUpload(meta));
+            applyPeopleAlertState(match);
 
             // 1.1 获取关联视频 ID 并生成预签名 URL
             String videoId = meta.get("video_id");
@@ -294,36 +362,40 @@ public class FaceSearchService {
         }
     }
 
-    private int iFromIdScores(List<io.milvus.response.SearchResultsWrapper.IDScore> idScores,
-                              io.milvus.response.SearchResultsWrapper.IDScore current) {
-        return idScores.indexOf(current);
-    }
-
-    private String extractStringField(io.milvus.response.SearchResultsWrapper wrapper, String fieldName, int idx) {
-        try {
-            List<?> values = wrapper.getFieldData(fieldName, 0);
-            if (idx >= 0 && idx < values.size()) {
-                Object value = values.get(idx);
-                return value == null ? null : String.valueOf(value);
-            }
-        } catch (Exception ignored) {
+    private void applyPeopleAlertState(SearchMatchDTO match) {
+        String peopleId = match.getPeopleId();
+        if (peopleId == null || peopleId.isBlank()) {
+            match.setAlertHit(false);
+            match.setAlertPeopleId(null);
+            return;
         }
-        return null;
+
+        try {
+            StatObjectResponse peopleStat = minioClient.statObject(
+                    StatObjectArgs.builder()
+                            .bucket(peopleBucketName)
+                            .object(peopleId + ".jpg")
+                            .build());
+            boolean suspect = Boolean.parseBoolean(
+                    peopleStat.userMetadata().getOrDefault("is_suspect", "false"));
+            match.setAlertHit(suspect);
+            match.setAlertPeopleId(suspect ? peopleId : null);
+        } catch (Exception e) {
+            match.setAlertHit(false);
+            match.setAlertPeopleId(null);
+            log.debug("Failed to resolve people alert state for {}: {}", peopleId, e.getMessage());
+        }
     }
 
-    private R<SearchResults> runSearch(Integer topK, List<List<Float>> searchVectors, boolean includePeopleField) {
+    private R<SearchResults> runSearch(Integer topK, List<List<Float>> searchVectors) {
         SearchParam.Builder builder = SearchParam.newBuilder()
                 .withCollectionName(collectionName)
                 .withMetricType(io.milvus.param.MetricType.COSINE)
                 .withTopK(topK != null ? topK : 50)
                 .withFloatVectors(searchVectors)
                 .withVectorFieldName("vector")
-                .withParams("{\"nprobe\":10}");
-        if (includePeopleField) {
-            builder.withOutFields(List.of("face_id", "people_id"));
-        } else {
-            builder.withOutFields(List.of("face_id"));
-        }
+                .withParams("{\"nprobe\":10}")
+                .withOutFields(List.of("face_id"));
         return milvusClient.search(builder.build());
     }
 }

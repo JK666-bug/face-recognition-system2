@@ -15,6 +15,8 @@ const Search = () => {
     const [activeVideo, setActiveVideo] = useState(null); // URL of current video
     const [downloadingId, setDownloadingId] = useState(null);
     const [topK, setTopK] = useState(50);
+    const [peopleIdQuery, setPeopleIdQuery] = useState('');
+    const [searchMode, setSearchMode] = useState('photo');
     
     // Time filter states
     const [timeRange, setTimeRange] = useState('all'); // all, today, week, month, custom
@@ -28,6 +30,7 @@ const Search = () => {
             setPreviewUrl(URL.createObjectURL(file));
             setResults([]);
             setError('');
+            setSearchMode('photo');
         }
     };
 
@@ -87,8 +90,41 @@ const Search = () => {
 
             const data = await response.json();
             setResults(data);
+            setSearchMode('photo');
         } catch (err) {
             setError('Search failed. Please ensure the backend is running and Milvus is initialized.');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handlePeopleIdSearch = async () => {
+        const trimmedPeopleId = peopleIdQuery.trim();
+        if (!trimmedPeopleId) return;
+
+        setLoading(true);
+        setError('');
+
+        const token = localStorage.getItem('token');
+        try {
+            const params = new URLSearchParams({ peopleId: trimmedPeopleId });
+            if (startTime) params.append('startTime', startTime);
+            if (endTime) params.append('endTime', endTime);
+
+            const response = await fetch(`http://localhost:8080/api/face/search/by-people-id?${params.toString()}`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+
+            if (!response.ok) {
+                throw new Error('Search by peopleId failed on server');
+            }
+
+            const data = await response.json();
+            setResults(data);
+            setSearchMode('peopleId');
+        } catch (err) {
+            setError('Search by People ID failed. Please ensure the backend is updated and running.');
             console.error(err);
         } finally {
             setLoading(false);
@@ -191,6 +227,25 @@ const Search = () => {
 
             <div className="search-content">
                 <div className="upload-section">
+                    <div className="search-mode-card">
+                        <div className="search-mode-title">Search By People ID</div>
+                        <input
+                            type="text"
+                            value={peopleIdQuery}
+                            onChange={(e) => setPeopleIdQuery(e.target.value)}
+                            placeholder="Enter People ID"
+                            className="peopleid-input"
+                        />
+                        <button
+                            className="search-btn secondary-btn"
+                            disabled={!peopleIdQuery.trim() || loading}
+                            onClick={handlePeopleIdSearch}
+                        >
+                            {loading ? <Loader2 className="spinner" /> : <SearchIcon size={20} />}
+                            <span>{loading ? 'Searching...' : 'Search By ID'}</span>
+                        </button>
+                    </div>
+
                     <div
                         className={`drop-zone ${previewUrl ? 'has-preview' : ''}`}
                         onClick={() => document.getElementById('fileInput').click()}
@@ -383,9 +438,11 @@ const Search = () => {
                                                     <Clock size={16} className="info-icon" />
                                                     <span>{item.timestamp}</span>
                                                 </div>
-                                                <div className="score-badge">
-                                                    Similarity: {(item.score * 100).toFixed(2)}%
-                                                </div>
+                                                {searchMode !== 'peopleId' && (
+                                                    <div className="score-badge">
+                                                        Similarity: {(item.score * 100).toFixed(2)}%
+                                                    </div>
+                                                )}
                                                 <div className="info-row">
                                                     <span style={{ color: '#94a3b8' }}>People ID:</span>
                                                     <span>{item.peopleId || 'Unknown'}</span>

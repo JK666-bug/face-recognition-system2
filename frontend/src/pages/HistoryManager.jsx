@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, MapPin, Clock, Search, Filter, RefreshCcw, Loader2, AlertTriangle, Video, Play, X, Download } from 'lucide-react';
+import { Trash2, MapPin, Clock, Search, Filter, RefreshCcw, Loader2, AlertTriangle, X, Download, Camera, Upload } from 'lucide-react';
 
 const HistoryManager = () => {
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(false);
     const [filterLocation, setFilterLocation] = useState('all');
+    const [filterSource, setFilterSource] = useState('all'); // all | capture | upload
     const [searchTerm, setSearchTerm] = useState('');
     const [deletingId, setDeletingId] = useState(null);
     const [downloadingId, setDownloadingId] = useState(null);
@@ -15,7 +16,7 @@ const HistoryManager = () => {
     }, []);
 
     const handleDelete = async (id) => {
-        if (!window.confirm('Are you sure you want to permanently remove this capture record from storage and vector database?')) {
+        if (!window.confirm('确定从存储与向量库中永久删除该条人脸记录？（含抓拍或人物库同步写入）')) {
             return;
         }
 
@@ -41,7 +42,7 @@ const HistoryManager = () => {
     };
 
     const handleClearAll = async () => {
-        if (!window.confirm('CRITICAL WARNING: This will permanently delete ALL capture records, images, and vectors. This action cannot be undone. Proceed?')) {
+        if (!window.confirm('严重警告：将永久删除 faces 桶内全部人脸图与对应向量（含抓拍与人物库上传）。不可恢复，是否继续？')) {
             return;
         }
 
@@ -55,7 +56,7 @@ const HistoryManager = () => {
 
             if (response.ok) {
                 setRecords([]);
-                alert('All data has been cleared from cloud storage and vector database.');
+                alert('已清空对象存储中的全部人脸记录及向量库对应数据。');
             } else {
                 alert('Bulk deletion failed.');
             }
@@ -132,20 +133,26 @@ const HistoryManager = () => {
     const filteredRecords = useMemo(() => {
         return records.filter(r => {
             const matchLoc = filterLocation === 'all' || r.location === filterLocation;
+            const isUpload = Boolean(r.manualUpload);
+            const matchSource =
+                filterSource === 'all' ||
+                (filterSource === 'capture' && !isUpload) ||
+                (filterSource === 'upload' && isUpload);
             const searchLower = searchTerm.toLowerCase();
-            const matchSearch = r.id.toLowerCase().includes(searchLower) || 
+            const matchSearch = r.id.toLowerCase().includes(searchLower) ||
                                (r.timestamp && r.timestamp.toLowerCase().includes(searchLower)) ||
-                               (r.location && r.location.toLowerCase().includes(searchLower));
-            return matchLoc && matchSearch;
+                               (r.location && r.location.toLowerCase().includes(searchLower)) ||
+                               (r.peopleId && String(r.peopleId).toLowerCase().includes(searchLower));
+            return matchLoc && matchSource && matchSearch;
         });
-    }, [records, filterLocation, searchTerm]);
+    }, [records, filterLocation, filterSource, searchTerm]);
 
     return (
         <div style={{ padding: '30px' }}>
             <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
                     <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Dataset Explorer</h2>
-                    <p style={{ color: '#94a3b8' }}>Search, filter and manage historical snapshots in vector and object storage.</p>
+                    <p style={{ color: '#94a3b8' }}>展示 faces 桶内全部记录：监控抓拍与人物库换脸/新建同步写入的人脸图；可按来源筛选。</p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button 
@@ -157,7 +164,7 @@ const HistoryManager = () => {
                         }}
                     >
                         <Trash2 size={18} />
-                        Clear All History
+                        清空全部记录
                     </button>
                     <button 
                         onClick={fetchRecords} 
@@ -168,14 +175,14 @@ const HistoryManager = () => {
                         }}
                     >
                         <RefreshCcw size={18} className={loading ? 'spinner' : ''} />
-                        Refresh Data
+                        刷新
                     </button>
                 </div>
             </div>
 
             {/* Filter Bar */}
             <div style={{ 
-                display: 'flex', gap: '16px', marginBottom: '32px', 
+                display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '16px', marginBottom: '32px', 
                 background: 'rgba(255,255,255,0.02)', padding: '20px', borderRadius: '18px',
                 border: '1px solid rgba(255, 255, 255, 0.05)'
             }}>
@@ -183,7 +190,7 @@ const HistoryManager = () => {
                     <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
                     <input 
                         type="text" 
-                        placeholder="Search by ID, Time or Location..." 
+                        placeholder="按 ID、人物、时间或地点搜索…" 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         style={{ 
@@ -205,10 +212,36 @@ const HistoryManager = () => {
                     >
                         {locations.map(loc => (
                             <option key={loc} value={loc} style={{ background: '#0f172a' }}>
-                                {loc === 'all' ? 'All Locations' : loc}
+                                {loc === 'all' ? '全部地点' : loc}
                             </option>
                         ))}
                     </select>
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <span style={{ color: '#64748b', fontSize: '13px', marginRight: '4px' }}>来源</span>
+                    {[
+                        { id: 'all', label: '全部' },
+                        { id: 'capture', label: '抓拍' },
+                        { id: 'upload', label: '上传' },
+                    ].map(({ id, label }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            onClick={() => setFilterSource(id)}
+                            style={{
+                                padding: '10px 16px',
+                                borderRadius: '10px',
+                                border: filterSource === id ? '1px solid rgba(0, 210, 255, 0.45)' : '1px solid rgba(255,255,255,0.1)',
+                                background: filterSource === id ? 'rgba(0, 210, 255, 0.12)' : 'rgba(255,255,255,0.03)',
+                                color: filterSource === id ? '#e2e8f0' : '#94a3b8',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: filterSource === id ? 600 : 500,
+                            }}
+                        >
+                            {label}
+                        </button>
+                    ))}
                 </div>
             </div>
 
@@ -228,7 +261,18 @@ const HistoryManager = () => {
                                 background: 'rgba(255,255,255,0.03)', borderRadius: '20px', 
                                 border: '1px solid rgba(255,255,255,0.08)', overflow: 'hidden',
                                 transition: 'all 0.3s ease', position: 'relative'
-                            }} className="history-card">
+                            }}                                 className="history-card">
+                                <div style={{
+                                    position: 'absolute', top: '10px', left: '10px', zIndex: 10,
+                                    display: 'flex', alignItems: 'center', gap: '6px',
+                                    padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
+                                    background: record.manualUpload ? 'rgba(168, 85, 247, 0.25)' : 'rgba(0, 210, 255, 0.2)',
+                                    border: record.manualUpload ? '1px solid rgba(168, 85, 247, 0.35)' : '1px solid rgba(0, 210, 255, 0.35)',
+                                    color: record.manualUpload ? '#e9d5ff' : '#cffafe',
+                                }}>
+                                    {record.manualUpload ? <Upload size={12} /> : <Camera size={12} />}
+                                    {record.manualUpload ? '上传' : '抓拍'}
+                                </div>
                                 <button 
                                     onClick={() => handleDelete(record.id)}
                                     disabled={deletingId === record.id}
@@ -262,6 +306,11 @@ const HistoryManager = () => {
                                     <div style={{ fontSize: '10px', color: '#1e293b', background: '#334155', padding: '4px 8px', borderRadius: '6px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                         ID: {record.id}
                                     </div>
+                                    {record.peopleId && (
+                                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                            people: {record.peopleId}
+                                        </div>
+                                    )}
                                     
                                     {record.videoId && (
                                         <button 

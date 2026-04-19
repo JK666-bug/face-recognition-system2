@@ -2,6 +2,7 @@ package com.face.recognition.service;
 
 import com.face.recognition.dto.AlertEventDTO;
 import com.face.recognition.model.FaceDataMessage;
+import com.face.recognition.util.MinioMetadataFlags;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
 import lombok.extern.slf4j.Slf4j;
@@ -96,12 +97,14 @@ public class FaceStorageService {
     }
 
     private void initMilvusCollection() {
-        initSingleCollection(faceCollectionName, true);
-        initSingleCollection(peopleCollectionName, true);
-        initSingleCollection(alertCollectionName, true);
+        initFaceEmbeddingsCollection();
+        initPeopleOrAlertEmbeddingsCollection(peopleCollectionName);
+        initPeopleOrAlertEmbeddingsCollection(alertCollectionName);
     }
 
-    private void initSingleCollection(String collectionName, boolean includePeopleId) {
+    /** face_embeddings：face_id(PK) + vector；people_id 仅存 MinIO faces 对象元数据 */
+    private void initFaceEmbeddingsCollection() {
+        String collectionName = faceCollectionName;
         try {
             log.info("Checking Milvus collection: {}", collectionName);
             io.milvus.param.R<Boolean> response = milvusClient.hasCollection(
@@ -120,7 +123,6 @@ public class FaceStorageService {
             if (!exists) {
                 log.info("Milvus collection '{}' does not exist, creating...", collectionName);
 
-                // 定义字段
                 io.milvus.param.collection.FieldType idField = io.milvus.param.collection.FieldType.newBuilder()
                         .withName("face_id")
                         .withDataType(io.milvus.grpc.DataType.VarChar)
@@ -128,30 +130,18 @@ public class FaceStorageService {
                         .withPrimaryKey(true)
                         .build();
 
-                List<io.milvus.param.collection.FieldType> schemaFields = new ArrayList<>();
-                schemaFields.add(idField);
-                if (includePeopleId) {
-                    io.milvus.param.collection.FieldType peopleField = io.milvus.param.collection.FieldType.newBuilder()
-                            .withName("people_id")
-                            .withDataType(io.milvus.grpc.DataType.VarChar)
-                            .withMaxLength(64)
-                            .build();
-                    schemaFields.add(peopleField);
-                }
                 io.milvus.param.collection.FieldType vectorField = io.milvus.param.collection.FieldType.newBuilder()
                         .withName("vector")
                         .withDataType(io.milvus.grpc.DataType.FloatVector)
                         .withDimension(512)
                         .build();
-                schemaFields.add(vectorField);
 
-                // 创建集合
                 io.milvus.param.collection.CreateCollectionParam.Builder builder = io.milvus.param.collection.CreateCollectionParam
                         .newBuilder()
-                        .withCollectionName(collectionName);
-                for (io.milvus.param.collection.FieldType field : schemaFields) {
-                    builder.addFieldType(field);
-                }
+                        .withCollectionName(collectionName)
+                        .addFieldType(idField)
+                        .addFieldType(vectorField);
+
                 io.milvus.param.R<?> createRes = milvusClient.createCollection(builder.build());
 
                 if (createRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
@@ -159,39 +149,97 @@ public class FaceStorageService {
                     return;
                 }
 
-                // 创建索引 (加速搜索)
-                io.milvus.param.R<?> indexRes = milvusClient.createIndex(
-                        io.milvus.param.index.CreateIndexParam.newBuilder()
-                                .withCollectionName(collectionName)
-                                .withFieldName("vector")
-                                .withIndexType(io.milvus.param.IndexType.IVF_FLAT)
-                                .withMetricType(io.milvus.param.MetricType.COSINE)
-                                .withExtraParam("{\"nlist\":1024}")
-                                .build());
-
-                if (indexRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
-                    log.error("Failed to create Milvus index: {}", indexRes.getMessage());
-                }
-
-                // 加载集合到内存
-                io.milvus.param.R<?> loadRes = milvusClient.loadCollection(
-                        io.milvus.param.collection.LoadCollectionParam.newBuilder()
-                                .withCollectionName(collectionName)
-                                .build());
-
-                if (loadRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
-                    log.error("Failed to load Milvus collection: {}", loadRes.getMessage());
-                } else {
-                    log.info("Milvus collection '{}' initialized and loaded.", collectionName);
-                }
+                createVectorIndexAndLoad(collectionName);
             } else {
                 log.info("Milvus collection '{}' already exists.", collectionName);
-                // 确保已加载
                 milvusClient.loadCollection(io.milvus.param.collection.LoadCollectionParam.newBuilder()
                         .withCollectionName(collectionName).build());
             }
         } catch (Exception e) {
             log.error("Exception during Milvus initialization: ", e);
+        }
+    }
+
+    /**
+     * people_embeddings / alert_embeddings：仅 people_id(PK) + vector。
+     * 若集合已存在且为旧结构（含 face_id），需在 Milvus 中删除后由应用自动重建，或手动重建。
+     */
+    private void initPeopleOrAlertEmbeddingsCollection(String collectionName) {
+        try {
+            log.info("Checking Milvus collection: {}", collectionName);
+            io.milvus.param.R<Boolean> response = milvusClient.hasCollection(
+                    io.milvus.param.collection.HasCollectionParam.newBuilder()
+                            .withCollectionName(collectionName)
+                            .build());
+
+            if (response.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                log.error("Failed to check Milvus collection status: {}, Message: {}",
+                        response.getStatus(), response.getMessage());
+                return;
+            }
+
+            if (Boolean.FALSE.equals(response.getData())) {
+                log.info("Milvus collection '{}' does not exist, creating (people_id PK + vector)...", collectionName);
+
+                io.milvus.param.collection.FieldType pk = io.milvus.param.collection.FieldType.newBuilder()
+                        .withName("people_id")
+                        .withDataType(io.milvus.grpc.DataType.VarChar)
+                        .withMaxLength(64)
+                        .withPrimaryKey(true)
+                        .build();
+
+                io.milvus.param.collection.FieldType vectorField = io.milvus.param.collection.FieldType.newBuilder()
+                        .withName("vector")
+                        .withDataType(io.milvus.grpc.DataType.FloatVector)
+                        .withDimension(512)
+                        .build();
+
+                io.milvus.param.R<?> createRes = milvusClient.createCollection(
+                        io.milvus.param.collection.CreateCollectionParam.newBuilder()
+                                .withCollectionName(collectionName)
+                                .addFieldType(pk)
+                                .addFieldType(vectorField)
+                                .build());
+
+                if (createRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                    log.error("Failed to create Milvus collection: {}", createRes.getMessage());
+                    return;
+                }
+
+                createVectorIndexAndLoad(collectionName);
+            } else {
+                log.info("Milvus collection '{}' already exists.", collectionName);
+                milvusClient.loadCollection(io.milvus.param.collection.LoadCollectionParam.newBuilder()
+                        .withCollectionName(collectionName).build());
+            }
+        } catch (Exception e) {
+            log.error("Exception during Milvus initialization: ", e);
+        }
+    }
+
+    private void createVectorIndexAndLoad(String collectionName) {
+        io.milvus.param.R<?> indexRes = milvusClient.createIndex(
+                io.milvus.param.index.CreateIndexParam.newBuilder()
+                        .withCollectionName(collectionName)
+                        .withFieldName("vector")
+                        .withIndexType(io.milvus.param.IndexType.IVF_FLAT)
+                        .withMetricType(io.milvus.param.MetricType.COSINE)
+                        .withExtraParam("{\"nlist\":1024}")
+                        .build());
+
+        if (indexRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+            log.error("Failed to create Milvus index: {}", indexRes.getMessage());
+        }
+
+        io.milvus.param.R<?> loadRes = milvusClient.loadCollection(
+                io.milvus.param.collection.LoadCollectionParam.newBuilder()
+                        .withCollectionName(collectionName)
+                        .build());
+
+        if (loadRes.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+            log.error("Failed to load Milvus collection: {}", loadRes.getMessage());
+        } else {
+            log.info("Milvus collection '{}' initialized and loaded.", collectionName);
         }
     }
 
@@ -215,6 +263,10 @@ public class FaceStorageService {
         log.info("开始处理 [人脸] 数据，分配 face_id: {}", faceId);
 
         List<Float> vector = toFloatVector(message.getVector());
+        if (vector == null || vector.isEmpty()) {
+            log.warn("Skip face message: empty or missing embedding vector");
+            return;
+        }
         float alertMatchThreshold = settingsService.getAlertMatchThreshold();
         float peopleMatchThreshold = settingsService.getPeopleMatchThreshold();
         MatchResult alertMatch = searchPeople(alertCollectionName, vector, 1, alertMatchThreshold);
@@ -227,8 +279,11 @@ public class FaceStorageService {
             isNewPerson = true;
         }
 
-        // 1. 保存到对象数据库 (使用 MinIO)
-        saveToObjectDatabase(faceId, peopleId, message, alertMatch);
+        // 1. 保存到对象数据库 (使用 MinIO)；失败则不再写 Milvus / people，避免孤儿向量
+        if (!saveToObjectDatabase(faceId, peopleId, message, alertMatch)) {
+            log.warn("Skip Milvus and people upsert: MinIO did not persist face image [face_id: {}]", faceId);
+            return;
+        }
 
         if (alertMatch.isHit()) {
             alertWebSocketService.broadcast(AlertEventDTO.builder()
@@ -248,7 +303,7 @@ public class FaceStorageService {
         // 3. 维护人物底库
         upsertPeopleObject(peopleId, faceId, message, isNewPerson);
         if (isNewPerson) {
-            saveToVectorDatabase(peopleCollectionName, faceId, peopleId, vector);
+            savePeopleOrAlertEmbedding(peopleCollectionName, peopleId, vector);
         }
     }
 
@@ -278,7 +333,8 @@ public class FaceStorageService {
         }
     }
 
-    private void saveToObjectDatabase(String faceId, String peopleId, FaceDataMessage message, MatchResult alertMatch) {
+    /** @return false 表示 MinIO 未成功写入人脸图，调用方应中止后续 Milvus/people 写入 */
+    private boolean saveToObjectDatabase(String faceId, String peopleId, FaceDataMessage message, MatchResult alertMatch) {
         try {
             // Base64 解码回图片字节流
             byte[] imageBytes = Base64.getDecoder().decode(message.getImage_base64());
@@ -289,19 +345,16 @@ public class FaceStorageService {
             metadata.put("location", message.getLocation());
             metadata.put("timestamp", message.getTimestamp());
             metadata.put("people_id", peopleId);
-            metadata.put("alert_hit", String.valueOf(alertMatch.isHit()));
             if (message.getQuality_score() != null) {
                 metadata.put("quality_score", String.valueOf(message.getQuality_score()));
             }
             if (message.getCapture_reason() != null) {
                 metadata.put("capture_reason", message.getCapture_reason());
             }
-            if (alertMatch.getPeopleId() != null) {
-                metadata.put("alert_people_id", alertMatch.getPeopleId());
-            }
             if (message.getVideo_id() != null) {
                 metadata.put("video_id", message.getVideo_id());
             }
+            metadata.put(MinioMetadataFlags.MANUAL_UPLOAD, "false");
 
             // 存入 MinIO
             minioClient.putObject(
@@ -316,12 +369,13 @@ public class FaceStorageService {
             log.info("Image and metadata successfully saved to MinIO [face_id: {}, people_id: {}, Location: {}]", faceId,
                     peopleId,
                     message.getLocation());
+
+            registerLocation(message.getLocation());
+            return true;
         } catch (Exception e) {
             log.error("Failed to save to MinIO: ", e);
+            return false;
         }
-
-        // 1.1 注册位置到 places bucket
-        registerLocation(message.getLocation());
     }
 
     private void registerLocation(String location) {
@@ -355,12 +409,10 @@ public class FaceStorageService {
     private void saveToVectorDatabase(String collectionName, String faceId, String peopleId, List<Float> floatVector) {
         try {
             java.util.List<String> ids = java.util.Collections.singletonList(faceId);
-            java.util.List<String> peopleIds = java.util.Collections.singletonList(peopleId);
             java.util.List<java.util.List<Float>> vectors = java.util.Collections.singletonList(floatVector);
 
             java.util.List<io.milvus.param.dml.InsertParam.Field> fields = new java.util.ArrayList<>();
             fields.add(new io.milvus.param.dml.InsertParam.Field("face_id", ids));
-            fields.add(new io.milvus.param.dml.InsertParam.Field("people_id", peopleIds));
             fields.add(new io.milvus.param.dml.InsertParam.Field("vector", vectors));
 
             io.milvus.param.R<?> response = milvusClient.insert(
@@ -370,16 +422,9 @@ public class FaceStorageService {
                             .build());
 
             if (response.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
-                if (faceCollectionName.equals(collectionName) && response.getMessage() != null
-                        && response.getMessage().toLowerCase().contains("people_id")) {
-                    // 兼容已有老 face_embeddings 表结构（无 people_id 字段）
-                    log.warn("face collection has no people_id field, fallback insert without people_id");
-                    saveToLegacyFaceCollection(faceId, floatVector);
-                    return;
-                }
                 log.error("Failed to insert vector into Milvus: {}", response.getMessage());
             } else {
-                log.info("Feature vector successfully saved to Milvus [collection: {}, face_id: {}, people_id: {}, Dimension: {}]",
+                log.info("Feature vector successfully saved to Milvus [collection: {}, face_id: {}, people_id(minio): {}, dim: {}]",
                         collectionName,
                         faceId,
                         peopleId,
@@ -390,14 +435,28 @@ public class FaceStorageService {
         }
     }
 
-    private void saveToLegacyFaceCollection(String faceId, List<Float> floatVector) {
-        List<io.milvus.param.dml.InsertParam.Field> legacyFields = new ArrayList<>();
-        legacyFields.add(new io.milvus.param.dml.InsertParam.Field("face_id", Collections.singletonList(faceId)));
-        legacyFields.add(new io.milvus.param.dml.InsertParam.Field("vector", Collections.singletonList(floatVector)));
-        milvusClient.insert(io.milvus.param.dml.InsertParam.newBuilder()
-                .withCollectionName(faceCollectionName)
-                .withFields(legacyFields)
-                .build());
+    /** people_embeddings / alert_embeddings：仅 people_id + vector */
+    private void savePeopleOrAlertEmbedding(String collectionName, String peopleId, List<Float> floatVector) {
+        if (floatVector == null || floatVector.isEmpty()) {
+            return;
+        }
+        try {
+            java.util.List<io.milvus.param.dml.InsertParam.Field> fields = new java.util.ArrayList<>();
+            fields.add(new io.milvus.param.dml.InsertParam.Field("people_id",
+                    java.util.Collections.singletonList(peopleId)));
+            fields.add(new io.milvus.param.dml.InsertParam.Field("vector",
+                    java.util.Collections.singletonList(floatVector)));
+            io.milvus.param.R<?> response = milvusClient.insert(
+                    io.milvus.param.dml.InsertParam.newBuilder()
+                            .withCollectionName(collectionName)
+                            .withFields(fields)
+                            .build());
+            if (response.getStatus() != io.milvus.param.R.Status.Success.getCode()) {
+                log.error("Failed to insert into {}: {}", collectionName, response.getMessage());
+            }
+        } catch (Exception e) {
+            log.error("Exception during Milvus people/alert insert: ", e);
+        }
     }
 
     private List<Float> toFloatVector(List<Double> vector) {
@@ -420,6 +479,7 @@ public class FaceStorageService {
             double incomingScore = message.getQuality_score() != null ? message.getQuality_score() : 0.0;
             metadata.put("representative_video_id", incomingVideoId == null ? "" : incomingVideoId);
             metadata.put("representative_score", String.valueOf(incomingScore));
+            metadata.put(MinioMetadataFlags.MANUAL_UPLOAD, "false");
 
             if (isNewPerson) {
                 minioClient.putObject(PutObjectArgs.builder()
@@ -501,15 +561,40 @@ public class FaceStorageService {
         }
     }
 
+    /** faces 桶对象元数据中的 people_id（Milvus face 集合不存该字段） */
+    private String readPeopleIdFromFaceObject(String faceId) {
+        if (faceId == null || faceId.isBlank()) {
+            return null;
+        }
+        try {
+            io.minio.StatObjectResponse stat = minioClient.statObject(
+                    io.minio.StatObjectArgs.builder()
+                            .bucket(bucketName)
+                            .object(faceId + ".jpg")
+                            .build());
+            Map<String, String> meta = stat.userMetadata();
+            String pid = meta.get("people_id");
+            if (pid == null || pid.isBlank()) {
+                pid = meta.get("x-amz-meta-people_id");
+            }
+            return pid;
+        } catch (Exception e) {
+            log.debug("readPeopleIdFromFaceObject skip face_id={}: {}", faceId, e.getMessage());
+            return null;
+        }
+    }
+
     private MatchResult searchPeople(String collectionName, List<Float> embedding, int topK, float threshold) {
         if (embedding == null || embedding.isEmpty()) {
             return MatchResult.empty();
         }
         try {
+            boolean peopleOrAlert = collectionName.equals(peopleCollectionName) || collectionName.equals(alertCollectionName);
+            List<String> outFields = peopleOrAlert ? List.of("people_id") : List.of("face_id");
             io.milvus.param.dml.SearchParam searchParam = io.milvus.param.dml.SearchParam.newBuilder()
                     .withCollectionName(collectionName)
                     .withMetricType(io.milvus.param.MetricType.COSINE)
-                    .withOutFields(List.of("face_id", "people_id"))
+                    .withOutFields(outFields)
                     .withTopK(topK)
                     .withFloatVectors(List.of(embedding))
                     .withVectorFieldName("vector")
@@ -526,8 +611,13 @@ public class FaceStorageService {
                 return MatchResult.empty();
             }
             io.milvus.response.SearchResultsWrapper.IDScore hit = idScores.get(0);
-            Object peopleObj = wrapper.getFieldData("people_id", 0).get(0);
-            String peopleId = peopleObj == null ? null : String.valueOf(peopleObj);
+            String peopleId;
+            if (peopleOrAlert) {
+                peopleId = hit.getStrID();
+            } else {
+                String faceId = hit.getStrID();
+                peopleId = readPeopleIdFromFaceObject(faceId);
+            }
             return new MatchResult(true, peopleId, hit.getStrID(), hit.getScore());
         } catch (Exception e) {
             log.warn("Search in {} failed: {}", collectionName, e.getMessage());

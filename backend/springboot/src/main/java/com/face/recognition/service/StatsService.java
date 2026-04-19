@@ -2,6 +2,7 @@ package com.face.recognition.service;
 
 import com.face.recognition.dto.RecentCaptureDTO;
 import com.face.recognition.dto.StatsDTO;
+import com.face.recognition.util.MinioMetadataFlags;
 import io.milvus.client.MilvusServiceClient;
 import io.milvus.param.R;
 import io.milvus.param.collection.HasCollectionParam;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDate;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -36,17 +38,21 @@ public class StatsService {
     @Value("${spring.minio.placesBucketName}")
     private String placesBucketName;
 
+    @Value("${spring.minio.peopleBucketName:people}")
+    private String peopleBucketName;
+
     @Value("${spring.milvus.collectionName}")
     private String collectionName;
 
     public StatsDTO getStats() {
         long totalCount = 0;
         long todayCount = 0;
+        long totalPeople = 0;
+        long peopleToday = 0;
         String minioStatus = "Active";
         String milvusStatus = "Active";
         String rabbitStatus = "Active";
 
-        // 1. 统计 MinIO 数量和状态
         try {
             Iterable<Result<Item>> results = minioClient.listObjects(
                     ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
@@ -54,21 +60,68 @@ public class StatsService {
             LocalDate today = LocalDate.now();
             for (Result<Item> result : results) {
                 Item item = result.get();
-                totalCount++;
-
-                if (item.lastModified() != null) {
-                    LocalDate modifiedDate = item.lastModified().toLocalDate();
-                    if (modifiedDate.equals(today)) {
+                if (item.isDir() || !item.objectName().endsWith(".jpg")) {
+                    continue;
+                }
+                try {
+                    io.minio.StatObjectResponse stat = minioClient.statObject(
+                            io.minio.StatObjectArgs.builder()
+                                    .bucket(bucketName)
+                                    .object(item.objectName())
+                                    .build());
+                    Map<String, String> meta = stat.userMetadata();
+                    if (MinioMetadataFlags.isManualUpload(meta)) {
+                        continue;
+                    }
+                    totalCount++;
+                    LocalDate captureDay = parseCaptureDateFromMeta(meta, item);
+                    if (today.equals(captureDay)) {
                         todayCount++;
                     }
+                } catch (Exception e) {
+                    log.debug("Skip face object in stats (stat failed): {} — {}", item.objectName(), e.getMessage());
                 }
             }
         } catch (Exception e) {
-            log.warn("MinIO 检查失败: {}", e.getMessage());
+            log.warn("Failed to inspect faces bucket: {}", e.getMessage());
             minioStatus = "Error";
         }
 
-        // 2. 检查 Milvus 状态
+        try {
+            Iterable<Result<Item>> peopleResults = minioClient.listObjects(
+                    ListObjectsArgs.builder().bucket(peopleBucketName).recursive(true).build());
+
+            LocalDate today = LocalDate.now();
+            for (Result<Item> result : peopleResults) {
+                Item item = result.get();
+                if (item.isDir() || !item.objectName().endsWith(".jpg")) {
+                    continue;
+                }
+
+                try {
+                    io.minio.StatObjectResponse stat = minioClient.statObject(
+                            io.minio.StatObjectArgs.builder()
+                                    .bucket(peopleBucketName)
+                                    .object(item.objectName())
+                                    .build());
+                    Map<String, String> meta = stat.userMetadata();
+                    if (MinioMetadataFlags.isManualUpload(meta)) {
+                        continue;
+                    }
+                    totalPeople++;
+                    LocalDate activityDay = parsePeopleActivityDateFromMeta(meta, item);
+                    if (today.equals(activityDay)) {
+                        peopleToday++;
+                    }
+                } catch (Exception e) {
+                    log.debug("Failed to read people metadata for {}: {}", item.objectName(), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to inspect people bucket: {}", e.getMessage());
+            minioStatus = "Error";
+        }
+
         try {
             R<Boolean> milvusResp = milvusClient.hasCollection(
                     HasCollectionParam.newBuilder().withCollectionName(collectionName).build());
@@ -79,14 +132,12 @@ public class StatsService {
             milvusStatus = "Offline";
         }
 
-        // 3. 检查 RabbitMQ 状态
         try {
             rabbitTemplate.execute(channel -> channel.isOpen());
         } catch (Exception e) {
             rabbitStatus = "Offline";
         }
 
-        // 4. 获取所有活跃地点
         java.util.List<String> locations = new java.util.ArrayList<>();
         try {
             Iterable<Result<Item>> results = minioClient.listObjects(
@@ -95,45 +146,45 @@ public class StatsService {
                 locations.add(result.get().objectName());
             }
         } catch (Exception e) {
-            log.warn("获取地点列表失败: {}", e.getMessage());
+            log.warn("Failed to load locations: {}", e.getMessage());
         }
 
-        // 5. 获取最近抓拍记录 (仅限5分钟内，最多6条)
         java.util.List<RecentCaptureDTO> recentCaptures = new java.util.ArrayList<>();
         try {
             Iterable<Result<Item>> objects = minioClient.listObjects(
                     ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
-            
+
             java.util.List<Item> allItems = new java.util.ArrayList<>();
             for (Result<Item> res : objects) {
                 allItems.add(res.get());
             }
-            
-            // 按最后修改时间倒序排列
+
             allItems.sort((a, b) -> b.lastModified().compareTo(a.lastModified()));
-            
-            // 始终取最新的前6个
+
             int limit = Math.min(allItems.size(), 6);
             for (int i = 0; i < limit; i++) {
                 Item item = allItems.get(i);
                 try {
-                    // 获取元数据和图片内容
                     io.minio.StatObjectResponse stat = minioClient.statObject(
                             io.minio.StatObjectArgs.builder()
                                     .bucket(bucketName)
                                     .object(item.objectName())
                                     .build());
-                    
+
                     java.util.Map<String, String> meta = stat.userMetadata();
-                    String location = meta.getOrDefault("location", 
-                                      meta.getOrDefault("location".toLowerCase(), 
-                                      meta.getOrDefault("x-amz-meta-location", "Unknown")));
-                    
-                    String timestamp = meta.getOrDefault("timestamp", 
-                                       meta.getOrDefault("timestamp".toLowerCase(), 
-                                       meta.getOrDefault("x-amz-meta-timestamp", item.lastModified().toString())));
-                    
-                    // 下载图片并转 Base64
+                    if (MinioMetadataFlags.isManualUpload(meta)) {
+                        continue;
+                    }
+                    String location = meta.getOrDefault(
+                            "location",
+                            meta.getOrDefault("location".toLowerCase(),
+                                    meta.getOrDefault("x-amz-meta-location", "Unknown")));
+
+                    String timestamp = meta.getOrDefault(
+                            "timestamp",
+                            meta.getOrDefault("timestamp".toLowerCase(),
+                                    meta.getOrDefault("x-amz-meta-timestamp", item.lastModified().toString())));
+
                     try (java.io.InputStream stream = minioClient.getObject(
                             io.minio.GetObjectArgs.builder()
                                     .bucket(bucketName)
@@ -141,7 +192,7 @@ public class StatsService {
                                     .build())) {
                         byte[] bytes = stream.readAllBytes();
                         String base64 = java.util.Base64.getEncoder().encodeToString(bytes);
-                        
+
                         recentCaptures.add(RecentCaptureDTO.builder()
                                 .id(item.objectName())
                                 .imageBase64(base64)
@@ -150,21 +201,76 @@ public class StatsService {
                                 .build());
                     }
                 } catch (Exception e) {
-                    log.error("获取抓拍详情失败 [{}]: {}", item.objectName(), e.getMessage());
+                    log.error("Failed to load capture detail [{}]: {}", item.objectName(), e.getMessage());
                 }
             }
         } catch (Exception e) {
-            log.warn("获取最近抓拍失败: {}", e.getMessage());
+            log.warn("Failed to load recent captures: {}", e.getMessage());
         }
 
         return StatsDTO.builder()
                 .totalFaces(totalCount)
                 .capturesToday(todayCount)
+                .totalPeople(totalPeople)
+                .peopleToday(peopleToday)
                 .minioStatus(minioStatus)
                 .milvusStatus(milvusStatus)
                 .rabbitMQStatus(rabbitStatus)
                 .activeLocations(locations)
                 .recentCaptures(recentCaptures)
                 .build();
+    }
+
+    /**
+     * 今日抓拍：以元数据 timestamp（业务抓拍日）为准；解析失败则回退对象 lastModified。
+     */
+    private LocalDate parseCaptureDateFromMeta(Map<String, String> meta, Item item) {
+        String ts = firstMeta(meta, "timestamp");
+        if (ts != null && ts.length() >= 10) {
+            try {
+                return LocalDate.parse(ts.substring(0, 10));
+            } catch (Exception ignored) {
+            }
+        }
+        if (item.lastModified() != null) {
+            return item.lastModified().toLocalDate();
+        }
+        return null;
+    }
+
+    /**
+     * 今日人物活动：以元数据 last_time 为准；解析失败则回退 lastModified。
+     */
+    private LocalDate parsePeopleActivityDateFromMeta(Map<String, String> meta, Item item) {
+        String lt = firstMeta(meta, "last_time");
+        if (lt != null && lt.length() >= 10) {
+            try {
+                return LocalDate.parse(lt.substring(0, 10));
+            } catch (Exception ignored) {
+            }
+        }
+        if (item.lastModified() != null) {
+            return item.lastModified().toLocalDate();
+        }
+        return null;
+    }
+
+    private static String firstMeta(Map<String, String> meta, String key) {
+        if (meta == null) {
+            return null;
+        }
+        String v = meta.get(key);
+        if (v != null && !v.isBlank()) {
+            return v;
+        }
+        String lower = key.toLowerCase();
+        for (Map.Entry<String, String> e : meta.entrySet()) {
+            if (e.getKey() != null && e.getKey().toLowerCase().endsWith(lower)) {
+                if (e.getValue() != null && !e.getValue().isBlank()) {
+                    return e.getValue();
+                }
+            }
+        }
+        return null;
     }
 }

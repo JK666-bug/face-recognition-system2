@@ -32,4 +32,5 @@ D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springb
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\model\FaceMetadata.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\service\FaceSearchService.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\dto\PeopleRecordDTO.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\util\MinioMetadataFlags.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\service\FaceManagementService.java

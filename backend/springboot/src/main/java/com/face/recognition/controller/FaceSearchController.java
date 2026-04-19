@@ -37,4 +37,21 @@ public class FaceSearchController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @GetMapping("/search/by-people-id")
+    public ResponseEntity<List<SearchMatchDTO>> searchTrajectoryByPeopleId(
+            @RequestParam("peopleId") String peopleId,
+            @RequestParam(value = "startTime", required = false) String startTime,
+            @RequestParam(value = "endTime", required = false) String endTime) {
+        log.info("Received peopleId trajectory search: {}, range: [{} - {}]",
+                peopleId,
+                startTime != null ? startTime : "unlimited",
+                endTime != null ? endTime : "unlimited");
+        try {
+            return ResponseEntity.ok(faceSearchService.searchByPeopleId(peopleId, startTime, endTime));
+        } catch (Exception e) {
+            log.error("peopleId trajectory search failed: ", e);
+            return ResponseEntity.internalServerError().build();
+        }
+    }
 }

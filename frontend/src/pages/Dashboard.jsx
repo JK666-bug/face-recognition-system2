@@ -19,17 +19,20 @@ import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
 import PeopleLibrary from './PeopleLibrary';
 
-const DashboardContent = () => {
+const ALERT_RETENTION_MS = 30 * 1000;
+
+const DashboardContent = ({ liveAlerts, onDismissAlert }) => {
     const [stats, setStats] = useState({
         capturesToday: '-',
         totalFaces: '-',
+        peopleToday: '-',
+        totalPeople: '-',
         milvusStatus: 'Checking...',
         minioStatus: 'Checking...',
         rabbitMQStatus: 'Checking...',
         activeLocations: [],
         recentCaptures: []
     });
-    const [liveAlerts, setLiveAlerts] = useState([]);
 
     useEffect(() => {
         const fetchStats = async () => {
@@ -42,6 +45,8 @@ const DashboardContent = () => {
                 setStats({
                     capturesToday: (data.capturesToday ?? 0).toLocaleString(),
                     totalFaces: (data.totalFaces ?? 0).toLocaleString(),
+                    peopleToday: (data.peopleToday ?? 0).toLocaleString(),
+                    totalPeople: (data.totalPeople ?? 0).toLocaleString(),
                     milvusStatus: data.milvusStatus || 'Unknown',
                     minioStatus: data.minioStatus || 'Unknown',
                     rabbitMQStatus: data.rabbitMQStatus || 'Unknown',
@@ -65,22 +70,6 @@ const DashboardContent = () => {
         return () => clearInterval(interval);
     }, []);
 
-    useEffect(() => {
-        const ws = new WebSocket('ws://localhost:8080/ws-alerts');
-        ws.onmessage = (event) => {
-            try {
-                const alert = JSON.parse(event.data);
-                if (alert.type === 'SUSPECT_ALERT') {
-                    setLiveAlerts(prev => [alert, ...prev].slice(0, 10));
-                }
-            } catch (e) {
-                console.error('Failed to parse websocket alert:', e);
-            }
-        };
-        ws.onerror = (err) => console.error('Alert websocket error:', err);
-        return () => ws.close();
-    }, []);
-
     const getStatusColor = (status) => {
         if (status === 'Active') return '#10b981';
         if (status === 'Checking...') return '#94a3b8';
@@ -90,6 +79,8 @@ const DashboardContent = () => {
     const mainStats = [
         { label: 'Captures Today', value: stats.capturesToday, color: '#00d2ff', icon: Activity },
         { label: 'Total Faces', value: stats.totalFaces, color: '#10b981', icon: Users },
+        { label: 'People Today', value: stats.peopleToday, color: '#f59e0b', icon: UserIcon },
+        { label: 'Total People', value: stats.totalPeople, color: '#a78bfa', icon: Users },
     ];
 
     const healthStats = [
@@ -187,6 +178,22 @@ const DashboardContent = () => {
                                         Location: {alert.location || 'Unknown'} | Time: {alert.timestamp || 'Unknown'}
                                     </div>
                                 </div>
+                                <button
+                                    onClick={() => onDismissAlert(alert.receivedAt, alert.faceId)}
+                                    style={{
+                                        marginLeft: 'auto',
+                                        background: 'transparent',
+                                        border: '1px solid rgba(244,63,94,0.35)',
+                                        color: '#fda4af',
+                                        borderRadius: '8px',
+                                        padding: '6px 10px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    Dismiss
+                                </button>
                             </div>
                         ))}
                     </div>
@@ -284,18 +291,73 @@ const DashboardContent = () => {
 const Dashboard = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('overview');
+    const [liveAlerts, setLiveAlerts] = useState(() => {
+        try {
+            const rawAlerts = JSON.parse(localStorage.getItem('liveAlerts') || '[]');
+            const now = Date.now();
+            return Array.isArray(rawAlerts)
+                ? rawAlerts.filter(alert => alert?.receivedAt && now - alert.receivedAt <= ALERT_RETENTION_MS)
+                : [];
+        } catch {
+            return [];
+        }
+    });
     const user = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"GUEST","id":"0"}');
+
+    useEffect(() => {
+        const ws = new WebSocket('ws://localhost:8080/ws-alerts');
+        ws.onmessage = (event) => {
+            try {
+                const alert = JSON.parse(event.data);
+                if (alert.type === 'SUSPECT_ALERT') {
+                    const stampedAlert = { ...alert, receivedAt: Date.now() };
+                    setLiveAlerts(prev => [stampedAlert, ...prev]
+                        .filter(item => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
+                        .slice(0, 20));
+                }
+            } catch (e) {
+                console.error('Failed to parse websocket alert:', e);
+            }
+        };
+        ws.onerror = (err) => console.error('Alert websocket error:', err);
+        return () => ws.close();
+    }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = Date.now();
+            setLiveAlerts(prev => prev.filter(alert => now - alert.receivedAt <= ALERT_RETENTION_MS));
+        }, 30000);
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('liveAlerts', JSON.stringify(liveAlerts));
+    }, [liveAlerts]);
+
+    const handleDismissAlert = (receivedAt, faceId) => {
+        setLiveAlerts(prev => prev.filter(alert => !(alert.receivedAt === receivedAt && alert.faceId === faceId)));
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('liveAlerts');
         navigate('/login');
     };
+
+    const canPeopleLibrary = user.role === 'SUPER_ADMIN';
+
+    useEffect(() => {
+        if (!canPeopleLibrary && activeTab === 'people') {
+            setActiveTab('overview');
+        }
+    }, [canPeopleLibrary, activeTab]);
 
     const navItems = [
         { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview', visible: true },
         { id: 'search', icon: SearchIcon, label: 'Trajectory Search', visible: true },
-        { id: 'people', icon: Users, label: 'People Library', visible: true },
+        { id: 'people', icon: Users, label: 'People Library', visible: canPeopleLibrary },
         { id: 'history', icon: History, label: 'Dataset', visible: user.role === 'SUPER_ADMIN' },
         { id: 'users', icon: Users, label: 'Access Control', visible: user.role === 'SUPER_ADMIN' },
         { id: 'settings', icon: Settings, label: 'Settings', visible: user.role === 'SUPER_ADMIN' }
@@ -423,10 +485,10 @@ const Dashboard = () => {
 
                 <main style={{ padding: '16px' }}>
                     {activeTab === 'overview' ? (
-                        <DashboardContent />
+                        <DashboardContent liveAlerts={liveAlerts} onDismissAlert={handleDismissAlert} />
                     ) : activeTab === 'search' ? (
                         <Search />
-                    ) : activeTab === 'people' ? (
+                    ) : activeTab === 'people' && canPeopleLibrary ? (
                         <PeopleLibrary />
                     ) : activeTab === 'history' ? (
                         <HistoryManager />

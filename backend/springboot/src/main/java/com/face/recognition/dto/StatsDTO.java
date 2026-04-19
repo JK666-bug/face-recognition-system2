@@ -12,6 +12,8 @@ import lombok.NoArgsConstructor;
 public class StatsDTO {
     private long totalFaces;
     private long capturesToday;
+    private long totalPeople;
+    private long peopleToday;
     private String milvusStatus;
     private String minioStatus;
     private String rabbitMQStatus;
