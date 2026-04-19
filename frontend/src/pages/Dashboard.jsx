@@ -19,9 +19,10 @@ import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
 import PeopleLibrary from './PeopleLibrary';
 
-const ALERT_RETENTION_MS = 30 * 1000;
+// 过短会导致刚收到的预警很快被清掉，页面长期显示 “No live suspect alerts yet.”
+const ALERT_RETENTION_MS = 6 * 60 * 60 * 1000; // 6 小时内保留在列表与 localStorage
 
-const DashboardContent = ({ liveAlerts, onDismissAlert }) => {
+const DashboardContent = ({ liveAlerts, onDismissAlert, alertWsStatus }) => {
     const [stats, setStats] = useState({
         capturesToday: '-',
         totalFaces: '-',
@@ -150,7 +151,16 @@ const DashboardContent = ({ liveAlerts, onDismissAlert }) => {
                 marginBottom: '30px'
             }}>
                 {liveAlerts.length === 0 ? (
-                    <div style={{ color: '#fda4af', opacity: 0.8 }}>No live suspect alerts yet.</div>
+                    <div style={{ color: '#fda4af', opacity: 0.9 }}>
+                        <div>No live suspect alerts yet.</div>
+                        <div style={{ marginTop: '10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.5 }}>
+                            WebSocket:{' '}
+                            <span style={{ color: alertWsStatus === 'open' ? '#34d399' : '#fbbf24' }}>
+                                {alertWsStatus === 'open' ? 'connected' : alertWsStatus === 'connecting' ? 'connecting…' : alertWsStatus}
+                            </span>
+                            . Keep this browser tab open after login; open <strong>Analytics Overview</strong> to view the list. Entries older than 6 hours are removed. If status is not connected, set env <code style={{ fontSize: '11px' }}>VITE_WS_HOST_PORT</code> (host:port) to your Spring server.
+                        </div>
+                    </div>
                 ) : (
                     <div style={{ display: 'grid', gap: '12px' }}>
                         {liveAlerts.map((alert, idx) => (
@@ -303,31 +313,66 @@ const Dashboard = () => {
         }
     });
     const user = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"GUEST","id":"0"}');
+    const [alertWsStatus, setAlertWsStatus] = useState('connecting');
 
     useEffect(() => {
-        const ws = new WebSocket('ws://localhost:8080/ws-alerts');
-        ws.onmessage = (event) => {
-            try {
-                const alert = JSON.parse(event.data);
-                if (alert.type === 'SUSPECT_ALERT') {
-                    const stampedAlert = { ...alert, receivedAt: Date.now() };
-                    setLiveAlerts(prev => [stampedAlert, ...prev]
-                        .filter(item => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
-                        .slice(0, 20));
+        let ws;
+        let reconnectTimer;
+        let cancelled = false;
+
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHostPort = import.meta.env.VITE_WS_HOST_PORT || `${window.location.hostname}:8080`;
+        const wsUrl = `${wsProto}//${wsHostPort}/ws-alerts`;
+
+        const connect = () => {
+            if (cancelled) return;
+            setAlertWsStatus((s) => (s === 'open' ? s : 'connecting'));
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                console.info('[alerts] WebSocket connected', wsUrl);
+                setAlertWsStatus('open');
+            };
+            ws.onclose = () => {
+                console.info('[alerts] WebSocket closed');
+                setAlertWsStatus('closed');
+                if (!cancelled) {
+                    reconnectTimer = setTimeout(connect, 3000);
                 }
-            } catch (e) {
-                console.error('Failed to parse websocket alert:', e);
+            };
+            ws.onerror = (err) => {
+                console.error('Alert websocket error:', err);
+                setAlertWsStatus('error');
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const alert = JSON.parse(event.data);
+                    if (alert.type === 'SUSPECT_ALERT') {
+                        const stampedAlert = { ...alert, receivedAt: Date.now() };
+                        setLiveAlerts((prev) => [stampedAlert, ...prev]
+                            .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
+                            .slice(0, 20));
+                    }
+                } catch (e) {
+                    console.error('Failed to parse websocket alert:', e);
+                }
+            };
+        };
+
+        connect();
+        return () => {
+            cancelled = true;
+            clearTimeout(reconnectTimer);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
             }
         };
-        ws.onerror = (err) => console.error('Alert websocket error:', err);
-        return () => ws.close();
     }, []);
 
     useEffect(() => {
         const interval = setInterval(() => {
             const now = Date.now();
-            setLiveAlerts(prev => prev.filter(alert => now - alert.receivedAt <= ALERT_RETENTION_MS));
-        }, 30000);
+            setLiveAlerts((prev) => prev.filter((alert) => now - alert.receivedAt <= ALERT_RETENTION_MS));
+        }, 60_000);
         return () => clearInterval(interval);
     }, []);
 
@@ -485,7 +530,11 @@ const Dashboard = () => {
 
                 <main style={{ padding: '16px' }}>
                     {activeTab === 'overview' ? (
-                        <DashboardContent liveAlerts={liveAlerts} onDismissAlert={handleDismissAlert} />
+                        <DashboardContent
+                            liveAlerts={liveAlerts}
+                            onDismissAlert={handleDismissAlert}
+                            alertWsStatus={alertWsStatus}
+                        />
                     ) : activeTab === 'search' ? (
                         <Search />
                     ) : activeTab === 'people' && canPeopleLibrary ? (

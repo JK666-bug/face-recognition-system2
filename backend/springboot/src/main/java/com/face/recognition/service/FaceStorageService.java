@@ -269,6 +269,7 @@ public class FaceStorageService {
         }
         float alertMatchThreshold = settingsService.getAlertMatchThreshold();
         float peopleMatchThreshold = settingsService.getPeopleMatchThreshold();
+        // 底库认人、alert 预警共用 searchPeople()：同一套 COSINE + top1 分数判定；仅集合与阈值配置项不同
         MatchResult alertMatch = searchPeople(alertCollectionName, vector, 1, alertMatchThreshold);
         MatchResult peopleMatch = searchPeople(peopleCollectionName, vector, 1, peopleMatchThreshold);
 
@@ -584,6 +585,10 @@ public class FaceStorageService {
         }
     }
 
+    /**
+     * 在「people_id + vector」类集合上做向量检索（{@code people_embeddings} 底库认人、{@code alert_embeddings} 预警）。
+     * 判定与人物底库实时对齐一致：Metric COSINE、取 topK 中最高分，若 {@code score >= threshold} 则命中（认人为已入库人物，预警为触发报警）。
+     */
     private MatchResult searchPeople(String collectionName, List<Float> embedding, int topK, float threshold) {
         if (embedding == null || embedding.isEmpty()) {
             return MatchResult.empty();

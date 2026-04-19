@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 
+import java.io.IOException;
+import java.util.Iterator;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -25,11 +27,24 @@ public class AlertWebSocketService {
     }
 
     public void broadcast(AlertEventDTO event) {
+        if (sessions.isEmpty()) {
+            log.warn("Suspect alert WebSocket broadcast skipped: no connected clients (keep Dashboard open to receive live alerts)");
+            return;
+        }
         try {
             String payload = objectMapper.writeValueAsString(event);
-            for (WebSocketSession session : sessions) {
-                if (session.isOpen()) {
+            Iterator<WebSocketSession> it = sessions.iterator();
+            while (it.hasNext()) {
+                WebSocketSession session = it.next();
+                if (!session.isOpen()) {
+                    it.remove();
+                    continue;
+                }
+                try {
                     session.sendMessage(new TextMessage(payload));
+                } catch (IOException e) {
+                    log.warn("WebSocket send failed, removing session: {}", e.getMessage());
+                    it.remove();
                 }
             }
         } catch (Exception e) {
