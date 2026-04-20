@@ -1,0 +1,71 @@
+Face Recognition System 项目技术说明（纯文字）
+
+本说明根据当前仓库代码整理，不写目录树、不用表格画图，只说明系统做什么、怎么连、数据怎么走。部署命令仍以仓库根目录 README 为准。
+
+一、系统是干什么的
+
+这是一套用在监控场景里的事情：视频或摄像头里做人脸检测和追踪，用 YOLOv8（Ultralytics 的 track，带 persist）在画面里跟住多张脸；每张要入库的脸会裁出来，用 DeepFace 的 Facenet512 抽出 512 维向量；通过 RabbitMQ 把「图加向量加元数据」发给 Spring Boot，由 Java 写入 MinIO 和 Milvus；人物用 people_id 串起来，嫌疑人再在 alert_embeddings 里单独存一条代表向量，超过设定相似度就经 WebSocket 推到前端 Dashboard。管理端是 React，登录后进 Dashboard 里多个 Tab。
+
+三个容易混的 ID：第一是 track_id，只在 Python 里用，是追踪器给的整数，用来同一镜头里跨帧认是同一张脸，不会发给 Java，也不是 people_id。第二是 face_id，每条抓拍在 Java 里新 UUID，faces 桶里一张 face_id.jpg、Milvus 的 face_embeddings 里一行。第三是 people_id，全局人物 UUID，Java 用 people_embeddings 跟当前向量比，过了 peopleMatchThreshold 就认为是已有人，否则新建 people_id；多条抓拍可以共用一个 people_id。
+
+二、整条链路怎么通信
+
+摄像头或视频文件进 demo.py，调 face_detection 的 detect_video，需要推后端时走 feature_extraction 提特征，再经 backend_pusher 发到 RabbitMQ 的队列 face_recognition_queue，消息体是 JSON。Java 侧 FaceMQConsumer 监听同一队列，Spring 用 Jackson2JsonMessageConverter 转成 FaceDataMessage。人脸类型里带 vector、image_base64、timestamp、location、video_id、quality_score、capture_reason；视频跑完后另发一条 type 为 VIDEO，带 video_id 和整段视频的 Base64。
+
+Java 访问 MinIO 用 S3 兼容 API，访问 Milvus 用官方 Java SDK 连 19530，访问 MySQL 存用户。浏览器打开 Vite 前端连 8080 的 REST，Header 里带 Bearer JWT。实时预警是 WebSocket，路径 ws 主机加端口加 /ws-alerts，消息里是 JSON，type 为 SUSPECT_ALERT，带 faceId、peopleId、alertPeopleId、地点、时间、图 Base64 等。
+
+端口习惯：RabbitMQ 程序连 5888（Docker 把容器 5672 映射出来）、管理台 15672；MinIO API 30000、控制台 30001；Milvus 19530；MySQL 3306；Spring 8080；前端开发 5173。
+
+三、Python 抓拍和「传几张」
+
+一条 MQ 消息对应一次 push_face_data 调用，也就是一张当时的人脸小图加一个 512 维向量，不是批量打包多张图。
+
+什么时候推：某个 track_id 第一次进入追踪字典会立刻推一次，原因写 ENTER。之后在正脸且偏转角满足阈值时可能推 QUALITY，若之前没推过质量或当前置信度比上次质量推的那次至少高 0.10 再推。若该 ID 距离上一次任意抓拍已超过 60 秒会再推一次 STAYING。当这个 ID 在画面里消失超过大约 30 帧，会用最后一帧再推 LEAVE；视频结束还会把仍在字典里的 ID 全部再 LEAVE 一遍。
+
+demo 会给本次运行一个短的 video_id（uuid 前八位加 .mp4），回调里带给 MQ；跑完后若生成了标注视频文件，会再整条视频 Base64 发 VIDEO 消息。加 --no-save-faces 可以不往 algorithms/output/images 写盘，但回调照样执行，后端照样能收到。
+
+四、Java 收到人脸消息后做什么（顺序很重要）
+
+FaceStorageService 里 handleFaceData：先 new 一个 face_id。向量转成 Float 列表，空就返回。用当前向量去 Milvus 搜 alert_embeddings，COSINE、topK 取 1，分数要大于等于 alertMatchThreshold 才算 alert 命中；同样方式搜 people_embeddings，阈值 peopleMatchThreshold。people_id 若 people 命中就用命中的，否则新建 UUID 并标记 isNewPerson。
+
+接着先写 MinIO faces 桶 face_id.jpg，带上 people_id、地点、时间、质量分、capture_reason、video_id 等元数据；这里失败就直接返回，不再写向量，避免只有向量没有图。若 alert 命中就 AlertWebSocketService 广播给所有已连上的 ws 客户端。然后往 face_embeddings 插入 face_id 和向量。再 upsertPeopleObject 更新 people 桶里该 people_id 的代表图和元数据（同视频里按质量分保留更好的代表、跨视频要更高分才换图等）。只有 isNewPerson 为真时才往 people_embeddings 插入这一新人的一行；老用户后续抓拍不会自动更新 people_embeddings 里的向量，只动 MinIO 代表图策略。
+
+VIDEO 消息则解码后写入 videos 桶，对象名就是 video_id。
+
+五、Milvus 里三类集合各自干什么
+
+face_embeddings：主键 face_id，字段 vector，512 维 COSINE，给「以脸搜图」按每次抓拍搜。people_embeddings：主键 people_id，vector 同上，一人一行，给实时认人和底库匹配。alert_embeddings：主键 people_id，vector 同上，给嫌疑人实时比对。新建集合时应用会建 IVF_FLAT 索引并 load；若你本机已是旧结构需自己在 Milvus 里处理。
+
+六、MinIO 桶里放什么
+
+faces 桶放每次抓拍 face_id.jpg。people 桶放每个人物一张 people_id.jpg 代表脸，元数据里有 face_id、is_suspect、last_time、representative_score、representative_video_id、是否人工上传等。videos 桶放回放 mp4。places 桶用地点名字当对象名做占位，给统计活跃地点用。
+
+七、MySQL 只放什么
+
+库名默认 face_recognition，表 sys_user 存 id、username、password（BCrypt）、role（SUPER_ADMIN 或 ADMIN）。抓拍和向量不在 MySQL。首次启动若没有 admin 会创建 admin 密码 admin。
+
+八、配置文件两处可能不一致
+
+Java 的 SettingsService 读的是进程当前工作目录下的 config/settings.json，从 IDE 跑 Spring 时往往在 backend/springboot/config/settings.json。Python demo 读的是项目根目录 config/settings.json 里的 captureConfidence。两边若各改各的会不一致，部署时最好统一或复制同一份。
+
+九、人物合并 mergePeople 把 A 并进 B、删掉 A 时数据怎么动
+
+faces 桶里所有元数据 people_id 等于 A 的抓拍对象，只改元数据里的 people_id 改成 B，图片文件不改；face_embeddings 不按 people 去删插，理由是图没变向量就不变。people 桶里用 B 那张代表图重写 B 的对象，is_suspect 取 A 或 B 任一为真，last_time 取两个时间字符串里字典序较大的那个，manual_upload 只有 A 和 B 都是人工上传才标 true；然后删掉 A.jpg。Milvus 里删掉 people_id 等于 A 的那一行 people_embeddings，B 的那一行保留不动。alert 里先删 A；若合并后仍是嫌疑人且原来只有 A 是嫌疑人 B 不是，会用 B 当前主图重新提特征插入 B 的 alert；若 B 本来就是嫌疑人就只删 A 保留 B；若合并后谁都不是嫌疑人则连 B 的 alert 行也删掉。
+
+十、标嫌疑人和人物库上传
+
+setPeopleSuspect 会改 people 上 is_suspect，先删 alert 里该 people_id，若标成嫌疑人再用当前代表图提特征插入 alert。人物库新建会 new people_id 和 face_id，写 faces 和 people，写 face_embeddings 和 people_embeddings，若创建时勾选嫌疑人再写 alert。
+
+十一、以脸搜图和轨迹、和实时预警的差别
+
+以脸搜图搜的是 face_embeddings，阈值用 searchThreshold，和 peopleMatchThreshold 不是同一个数。搜完补 MinIO 信息，轨迹上是否显示报警看的是 people 桶里对应 people_id 的 is_suspect，不是看 alert 向量有没有命中。按 peopleId 查轨迹是扫 faces 桶元数据，不查 Milvus。实时预警只看 alert_embeddings 和 alertMatchThreshold，命中才 WebSocket 推。
+
+十二、前端大致有什么
+
+登录页拿 JWT。Dashboard 里 Overview 调统计接口、展示最近抓拍、连 WebSocket 看实时预警。Trajectory Search 上传图片搜脸。People Library 给超级管理员管人、标嫌疑人、合并、删、换脸。Dataset 管抓拍记录和批量删。Access Control 管注册管理员。Settings 调阈值。路由就是登录和 dashboard，子页面在 Dashboard 里切 Tab。
+
+十三、若「没有预警」可以从哪几层想
+
+alert 向量没达到阈值或库里没有对应人；MQ 没发或 Java 没消费；浏览器 WebSocket 没连上或没开 Dashboard；轨迹上的报警和实时 WebSocket 预警本来就不是同一套条件。
+
+（完）
