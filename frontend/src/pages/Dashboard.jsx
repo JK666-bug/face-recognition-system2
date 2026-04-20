@@ -17,11 +17,17 @@ import Search from './Search';
 import SettingsPage from './Settings';
 import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
+import PeopleLibrary from './PeopleLibrary';
 
-const DashboardContent = () => {
+// 过短会导致刚收到的预警很快被清掉，页面长期显示 “No live suspect alerts yet.”
+const ALERT_RETENTION_MS = 6 * 60 * 60 * 1000; // 6 小时内保留在列表与 localStorage
+
+const DashboardContent = ({ liveAlerts, onDismissAlert, alertWsStatus }) => {
     const [stats, setStats] = useState({
         capturesToday: '-',
         totalFaces: '-',
+        peopleToday: '-',
+        totalPeople: '-',
         milvusStatus: 'Checking...',
         minioStatus: 'Checking...',
         rabbitMQStatus: 'Checking...',
@@ -40,6 +46,8 @@ const DashboardContent = () => {
                 setStats({
                     capturesToday: (data.capturesToday ?? 0).toLocaleString(),
                     totalFaces: (data.totalFaces ?? 0).toLocaleString(),
+                    peopleToday: (data.peopleToday ?? 0).toLocaleString(),
+                    totalPeople: (data.totalPeople ?? 0).toLocaleString(),
                     milvusStatus: data.milvusStatus || 'Unknown',
                     minioStatus: data.minioStatus || 'Unknown',
                     rabbitMQStatus: data.rabbitMQStatus || 'Unknown',
@@ -72,6 +80,8 @@ const DashboardContent = () => {
     const mainStats = [
         { label: 'Captures Today', value: stats.capturesToday, color: '#00d2ff', icon: Activity },
         { label: 'Total Faces', value: stats.totalFaces, color: '#10b981', icon: Users },
+        { label: 'People Today', value: stats.peopleToday, color: '#f59e0b', icon: UserIcon },
+        { label: 'Total People', value: stats.totalPeople, color: '#a78bfa', icon: Users },
     ];
 
     const healthStats = [
@@ -130,6 +140,74 @@ const DashboardContent = () => {
                         </div>
                     </div>
                 ))}
+            </div>
+
+            <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#fda4af', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px' }}>Live Suspect Alerts</h4>
+            <div style={{
+                background: 'rgba(244, 63, 94, 0.08)',
+                borderRadius: '24px',
+                padding: '20px',
+                border: '1px solid rgba(244, 63, 94, 0.25)',
+                marginBottom: '30px'
+            }}>
+                {liveAlerts.length === 0 ? (
+                    <div style={{ color: '#fda4af', opacity: 0.9 }}>
+                        <div>No live suspect alerts yet.</div>
+                        <div style={{ marginTop: '10px', fontSize: '12px', color: '#94a3b8', lineHeight: 1.5 }}>
+                            WebSocket:{' '}
+                            <span style={{ color: alertWsStatus === 'open' ? '#34d399' : '#fbbf24' }}>
+                                {alertWsStatus === 'open' ? 'connected' : alertWsStatus === 'connecting' ? 'connecting…' : alertWsStatus}
+                            </span>
+                            . Keep this browser tab open after login; open <strong>Analytics Overview</strong> to view the list. Entries older than 6 hours are removed. If status is not connected, set env <code style={{ fontSize: '11px' }}>VITE_WS_HOST_PORT</code> (host:port) to your Spring server.
+                        </div>
+                    </div>
+                ) : (
+                    <div style={{ display: 'grid', gap: '12px' }}>
+                        {liveAlerts.map((alert, idx) => (
+                            <div key={`${alert.faceId}-${idx}`} style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '12px',
+                                background: 'rgba(15,23,42,0.6)',
+                                border: '1px solid rgba(244,63,94,0.2)',
+                                borderRadius: '12px',
+                                padding: '10px'
+                            }}>
+                                {alert.imageBase64 && (
+                                    <img
+                                        src={`data:image/jpeg;base64,${alert.imageBase64}`}
+                                        alt="alert"
+                                        style={{ width: '52px', height: '52px', borderRadius: '8px', objectFit: 'cover' }}
+                                    />
+                                )}
+                                <div style={{ fontSize: '12px' }}>
+                                    <div style={{ color: '#fda4af', fontWeight: 700 }}>
+                                        ALERT: matched suspect {alert.alertPeopleId || alert.peopleId}
+                                    </div>
+                                    <div style={{ color: '#cbd5e1' }}>
+                                        Location: {alert.location || 'Unknown'} | Time: {alert.timestamp || 'Unknown'}
+                                    </div>
+                                </div>
+                                <button
+                                    onClick={() => onDismissAlert(alert.receivedAt, alert.faceId)}
+                                    style={{
+                                        marginLeft: 'auto',
+                                        background: 'transparent',
+                                        border: '1px solid rgba(244,63,94,0.35)',
+                                        color: '#fda4af',
+                                        borderRadius: '8px',
+                                        padding: '6px 10px',
+                                        cursor: 'pointer',
+                                        fontSize: '11px',
+                                        fontWeight: 600
+                                    }}
+                                >
+                                    Dismiss
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+                )}
             </div>
 
             <h4 style={{ fontSize: '16px', fontWeight: '600', color: '#94a3b8', marginBottom: '16px', textTransform: 'uppercase', letterSpacing: '1px', marginTop: '40px' }}>Latest Intelligence Activity</h4>
@@ -223,17 +301,108 @@ const DashboardContent = () => {
 const Dashboard = () => {
     const navigate = useNavigate();
     const [activeTab, setActiveTab] = useState('overview');
+    const [liveAlerts, setLiveAlerts] = useState(() => {
+        try {
+            const rawAlerts = JSON.parse(localStorage.getItem('liveAlerts') || '[]');
+            const now = Date.now();
+            return Array.isArray(rawAlerts)
+                ? rawAlerts.filter(alert => alert?.receivedAt && now - alert.receivedAt <= ALERT_RETENTION_MS)
+                : [];
+        } catch {
+            return [];
+        }
+    });
     const user = JSON.parse(localStorage.getItem('user') || '{"username":"Guest","role":"GUEST","id":"0"}');
+    const [alertWsStatus, setAlertWsStatus] = useState('connecting');
+
+    useEffect(() => {
+        let ws;
+        let reconnectTimer;
+        let cancelled = false;
+
+        const wsProto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHostPort = import.meta.env.VITE_WS_HOST_PORT || `${window.location.hostname}:8080`;
+        const wsUrl = `${wsProto}//${wsHostPort}/ws-alerts`;
+
+        const connect = () => {
+            if (cancelled) return;
+            setAlertWsStatus((s) => (s === 'open' ? s : 'connecting'));
+            ws = new WebSocket(wsUrl);
+            ws.onopen = () => {
+                console.info('[alerts] WebSocket connected', wsUrl);
+                setAlertWsStatus('open');
+            };
+            ws.onclose = () => {
+                console.info('[alerts] WebSocket closed');
+                setAlertWsStatus('closed');
+                if (!cancelled) {
+                    reconnectTimer = setTimeout(connect, 3000);
+                }
+            };
+            ws.onerror = (err) => {
+                console.error('Alert websocket error:', err);
+                setAlertWsStatus('error');
+            };
+            ws.onmessage = (event) => {
+                try {
+                    const alert = JSON.parse(event.data);
+                    if (alert.type === 'SUSPECT_ALERT') {
+                        const stampedAlert = { ...alert, receivedAt: Date.now() };
+                        setLiveAlerts((prev) => [stampedAlert, ...prev]
+                            .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
+                            .slice(0, 20));
+                    }
+                } catch (e) {
+                    console.error('Failed to parse websocket alert:', e);
+                }
+            };
+        };
+
+        connect();
+        return () => {
+            cancelled = true;
+            clearTimeout(reconnectTimer);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.close();
+            }
+        };
+    }, []);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            const now = Date.now();
+            setLiveAlerts((prev) => prev.filter((alert) => now - alert.receivedAt <= ALERT_RETENTION_MS));
+        }, 60_000);
+        return () => clearInterval(interval);
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('liveAlerts', JSON.stringify(liveAlerts));
+    }, [liveAlerts]);
+
+    const handleDismissAlert = (receivedAt, faceId) => {
+        setLiveAlerts(prev => prev.filter(alert => !(alert.receivedAt === receivedAt && alert.faceId === faceId)));
+    };
 
     const handleLogout = () => {
         localStorage.removeItem('token');
         localStorage.removeItem('user');
+        localStorage.removeItem('liveAlerts');
         navigate('/login');
     };
+
+    const canPeopleLibrary = user.role === 'SUPER_ADMIN';
+
+    useEffect(() => {
+        if (!canPeopleLibrary && activeTab === 'people') {
+            setActiveTab('overview');
+        }
+    }, [canPeopleLibrary, activeTab]);
 
     const navItems = [
         { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview', visible: true },
         { id: 'search', icon: SearchIcon, label: 'Trajectory Search', visible: true },
+        { id: 'people', icon: Users, label: 'People Library', visible: canPeopleLibrary },
         { id: 'history', icon: History, label: 'Dataset', visible: user.role === 'SUPER_ADMIN' },
         { id: 'users', icon: Users, label: 'Access Control', visible: user.role === 'SUPER_ADMIN' },
         { id: 'settings', icon: Settings, label: 'Settings', visible: user.role === 'SUPER_ADMIN' }
@@ -331,6 +500,7 @@ const Dashboard = () => {
                         <h1 style={{ fontSize: '26px', fontWeight: '700', marginBottom: '4px' }}>
                             {activeTab === 'overview' ? 'Command Center' :
                                 activeTab === 'search' ? 'Trajectory Analysis' :
+                                    activeTab === 'people' ? 'People Library' :
                                     activeTab === 'history' ? 'Dataset Explorer' :
                                         activeTab === 'users' ? 'Identity Management' :
                                             'System Configuration'}
@@ -338,6 +508,7 @@ const Dashboard = () => {
                         <p style={{ color: '#94a3b8', fontSize: '14px' }}>
                             {activeTab === 'overview' ? 'Real-time intelligence and node health monitoring' :
                                 activeTab === 'search' ? 'Cross-referencing face signatures across distributed nodes' :
+                                    activeTab === 'people' ? 'De-duplicated identity base and suspect controls' :
                                     activeTab === 'history' ? 'Reviewing the global capture database' :
                                         activeTab === 'users' ? 'Managing administrative access and privileges' :
                                             'Fine-tuning system precision and metadata'}
@@ -359,9 +530,15 @@ const Dashboard = () => {
 
                 <main style={{ padding: '16px' }}>
                     {activeTab === 'overview' ? (
-                        <DashboardContent />
+                        <DashboardContent
+                            liveAlerts={liveAlerts}
+                            onDismissAlert={handleDismissAlert}
+                            alertWsStatus={alertWsStatus}
+                        />
                     ) : activeTab === 'search' ? (
                         <Search />
+                    ) : activeTab === 'people' && canPeopleLibrary ? (
+                        <PeopleLibrary />
                     ) : activeTab === 'history' ? (
                         <HistoryManager />
                     ) : activeTab === 'users' ? (

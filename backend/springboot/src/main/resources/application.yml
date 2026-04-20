@@ -28,13 +28,18 @@ spring:
     secretKey: minioadmin
     bucketName: faces
     placesBucketName: places
+    peopleBucketName: people
 
   # Milvus 配置 (向量数据库)
   milvus:
     host: localhost
     port: 19530
     collectionName: face_embeddings
+    peopleCollectionName: people_embeddings
+    alertCollectionName: alert_embeddings
     searchThreshold: 0.65
+    peopleMatchThreshold: 0.80
+    alertMatchThreshold: 0.85
   datasource:
     url: jdbc:mysql://localhost:3306/face_recognition?createDatabaseIfNotExist=true&useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
     username: face

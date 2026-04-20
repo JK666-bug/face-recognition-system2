@@ -125,21 +125,34 @@ class FaceDetector:
         face_counter = [1]
         def push_face(tid, face_frame, face_bbox, conf, reason="TRACE"):
             best_face_img = utils.crop_face(face_frame, face_bbox)
+            save_path = None
             if save_unique_faces:
+                images_dir.mkdir(parents=True, exist_ok=True)
                 save_paths = utils.save_faces(
-                    face_frame, 
-                    [{'bbox': face_bbox}], 
-                    images_dir, 
-                    video_id=current_video_id, 
+                    face_frame,
+                    [{'bbox': face_bbox}],
+                    images_dir,
+                    video_id=current_video_id,
                     face_id=face_counter[0]
                 )
                 if save_paths:
                     save_path = save_paths[0]
-                    if feature_extractor_callback:
-                        feature_extractor_callback(best_face_img, save_path, video_id=video_id)
-                    known_faces_data.append({'id': tid, 'reason': reason})
-                    print(f"📡 [{reason}] 抓拍推送! [ID: {tid}] (置信度: {conf:.2f}) (序列: {face_counter[0]})")
-                    face_counter[0] += 1
+
+            # 与磁盘保存解耦：实时推 MQ / 提特征必须执行，否则后端无抓拍、无嫌疑人比对与报警
+            if feature_extractor_callback:
+                path_for_cb = save_path if save_path else str(
+                    images_dir / f"_stream_{current_video_id}_tid{tid}_{reason}_{face_counter[0]}.jpg"
+                )
+                feature_extractor_callback(
+                    best_face_img,
+                    path_for_cb,
+                    video_id=video_id,
+                    quality_score=float(conf),
+                    capture_reason=reason
+                )
+                known_faces_data.append({'id': tid, 'reason': reason})
+                print(f"📡 [{reason}] 抓拍推送! [ID: {tid}] (置信度: {conf:.2f}) (序列: {face_counter[0]})")
+                face_counter[0] += 1
 
         # 标准化输出目录：始终保存在 algorithms/output/images (如用户要求)
         images_dir = self.base_dir / "output" / "images"

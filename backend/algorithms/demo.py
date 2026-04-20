@@ -62,7 +62,7 @@ def main():
     # 生成当前视频练习的唯一 ID
     current_video_session_id = str(uuid.uuid4())[:8] # 取前8位作为 ID
     
-    def print_features_callback(face_img, image_path, video_id=None):
+    def print_features_callback(face_img, image_path, video_id=None, quality_score=None, capture_reason=None):
         """抓拍新面孔后的回调：提取并打印特征，并推送到后端"""
         print(f"🧬  正在为抓拍图片提取特征: {Path(image_path).name}")
         # 传递图片数组 face_img 避开路径中的中文问题
@@ -71,7 +71,14 @@ def main():
             # 1. 打印演示
             print(f"✅  特征提取成功! 维度: {len(embedding)}")
             # 2. 推送到后端 MQ
-            pusher.push_face_data(embedding, face_img, location=args.location, video_id=video_id)
+            pusher.push_face_data(
+                embedding,
+                face_img,
+                location=args.location,
+                video_id=video_id,
+                quality_score=quality_score,
+                capture_reason=capture_reason
+            )
         else:
             print("⚠️  特征提取未能成功。")
 

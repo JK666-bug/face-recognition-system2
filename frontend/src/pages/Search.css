@@ -36,6 +36,40 @@
     gap: 20px;
 }
 
+.search-mode-card {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 12px;
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.search-mode-title {
+    font-size: 12px;
+    font-weight: 700;
+    color: #94a3b8;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+}
+
+.peopleid-input {
+    width: 100%;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, 0.04);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+    color: white;
+    font-size: 13px;
+    outline: none;
+}
+
+.peopleid-input:focus {
+    border-color: #00d2ff;
+    box-shadow: 0 0 0 3px rgba(0, 210, 255, 0.08);
+}
+
 .drop-zone {
     aspect-ratio: 1;
     background: rgba(255, 255, 255, 0.03);
@@ -104,6 +138,15 @@
 .search-btn:not(:disabled):hover {
     transform: translateY(-2px);
     box-shadow: 0 10px 20px -5px rgba(0, 210, 255, 0.4);
+}
+
+.secondary-btn {
+    background: rgba(255, 255, 255, 0.06);
+    box-shadow: none;
+}
+
+.secondary-btn:not(:disabled):hover {
+    box-shadow: 0 10px 20px -5px rgba(148, 163, 184, 0.18);
 }
 
 .spinner {

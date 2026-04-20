@@ -31,7 +31,7 @@ class BackendPusher:
             print(f"❌  无法连接到消息队列 (RabbitMQ): {e}")
             return False
 
-    def push_face_data(self, vector, face_img, location="Unknown", video_id=None):
+    def push_face_data(self, vector, face_img, location="Unknown", video_id=None, quality_score=None, capture_reason=None):
         """
         推送人脸数据到 MQ
         
@@ -56,7 +56,9 @@ class BackendPusher:
                 "image_base64": img_base64,
                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "location": location,
-                "video_id": video_id
+                "video_id": video_id,
+                "quality_score": quality_score,
+                "capture_reason": capture_reason
             }
             
             # 3. 发送消息
