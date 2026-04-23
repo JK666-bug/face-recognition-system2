@@ -348,9 +348,16 @@ const Dashboard = () => {
                     const alert = JSON.parse(event.data);
                     if (alert.type === 'SUSPECT_ALERT') {
                         const stampedAlert = { ...alert, receivedAt: Date.now() };
-                        setLiveAlerts((prev) => [stampedAlert, ...prev]
-                            .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
-                            .slice(0, 20));
+                        setLiveAlerts((prev) => {
+                            // Only deduplicate same capture event (same faceId).
+                            // Same peopleId at different moments should still be shown.
+                            if (stampedAlert.faceId && prev.some((item) => item.faceId === stampedAlert.faceId)) {
+                                return prev;
+                            }
+                            return [stampedAlert, ...prev]
+                                .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
+                                .slice(0, 20);
+                        });
                     }
                 } catch (e) {
                     console.error('Failed to parse websocket alert:', e);

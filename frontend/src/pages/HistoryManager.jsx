@@ -16,7 +16,7 @@ const HistoryManager = () => {
     }, []);
 
     const handleDelete = async (id) => {
-        if (!window.confirm('确定从存储与向量库中永久删除该条人脸记录？（含抓拍或人物库同步写入）')) {
+        if (!window.confirm('Permanently delete this face record from object storage and vector database? (Includes captured records and synchronized people-library writes.)')) {
             return;
         }
 
@@ -42,7 +42,7 @@ const HistoryManager = () => {
     };
 
     const handleClearAll = async () => {
-        if (!window.confirm('严重警告：将永久删除 faces 桶内全部人脸图与对应向量（含抓拍与人物库上传）。不可恢复，是否继续？')) {
+        if (!window.confirm('Critical warning: this will permanently delete all face images in the faces bucket and their linked vectors (including captures and people-library uploads). This action cannot be undone. Continue?')) {
             return;
         }
 
@@ -56,7 +56,7 @@ const HistoryManager = () => {
 
             if (response.ok) {
                 setRecords([]);
-                alert('已清空对象存储中的全部人脸记录及向量库对应数据。');
+                alert('All face records in object storage and corresponding vector data have been cleared.');
             } else {
                 alert('Bulk deletion failed.');
             }
@@ -152,7 +152,7 @@ const HistoryManager = () => {
             <div style={{ marginBottom: '32px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
                 <div>
                     <h2 style={{ fontSize: '28px', fontWeight: '800', marginBottom: '8px' }}>Dataset Explorer</h2>
-                    <p style={{ color: '#94a3b8' }}>展示 faces 桶内全部记录：监控抓拍与人物库换脸/新建同步写入的人脸图；可按来源筛选。</p>
+                    <p style={{ color: '#94a3b8' }}>Shows all records in the faces bucket: surveillance captures and people-library create/replace synced face images; filterable by source.</p>
                 </div>
                 <div style={{ display: 'flex', gap: '12px' }}>
                     <button 
@@ -164,7 +164,7 @@ const HistoryManager = () => {
                         }}
                     >
                         <Trash2 size={18} />
-                        清空全部记录
+                        Clear All Records
                     </button>
                     <button 
                         onClick={fetchRecords} 
@@ -175,7 +175,7 @@ const HistoryManager = () => {
                         }}
                     >
                         <RefreshCcw size={18} className={loading ? 'spinner' : ''} />
-                        刷新
+                        Refresh
                     </button>
                 </div>
             </div>
@@ -190,7 +190,7 @@ const HistoryManager = () => {
                     <Search size={18} style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)', color: '#475569' }} />
                     <input 
                         type="text" 
-                        placeholder="按 ID、人物、时间或地点搜索…" 
+                        placeholder="Search by ID, person, time, or location..." 
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                         style={{ 
@@ -212,17 +212,17 @@ const HistoryManager = () => {
                     >
                         {locations.map(loc => (
                             <option key={loc} value={loc} style={{ background: '#0f172a' }}>
-                                {loc === 'all' ? '全部地点' : loc}
+                                {loc === 'all' ? 'All Locations' : loc}
                             </option>
                         ))}
                     </select>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
-                    <span style={{ color: '#64748b', fontSize: '13px', marginRight: '4px' }}>来源</span>
+                    <span style={{ color: '#64748b', fontSize: '13px', marginRight: '4px' }}>Source</span>
                     {[
-                        { id: 'all', label: '全部' },
-                        { id: 'capture', label: '抓拍' },
-                        { id: 'upload', label: '上传' },
+                        { id: 'all', label: 'All' },
+                        { id: 'capture', label: 'Capture' },
+                        { id: 'upload', label: 'Upload' },
                     ].map(({ id, label }) => (
                         <button
                             key={id}
@@ -271,7 +271,7 @@ const HistoryManager = () => {
                                     color: record.manualUpload ? '#e9d5ff' : '#cffafe',
                                 }}>
                                     {record.manualUpload ? <Upload size={12} /> : <Camera size={12} />}
-                                    {record.manualUpload ? '上传' : '抓拍'}
+                                    {record.manualUpload ? 'Upload' : 'Capture'}
                                 </div>
                                 <button 
                                     onClick={() => handleDelete(record.id)}

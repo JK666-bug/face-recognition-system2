@@ -58,16 +58,16 @@ public class FaceSearchService {
         // 1. 保存临时文件
         Path tempFile = Files.createTempFile("search_", ".jpg");
         file.transferTo(tempFile.toFile());
-        log.info("临时图片已保存至: {}", tempFile);
+        log.info("Temporary image saved to: {}", tempFile);
 
         try {
             // 2. 调用 Python 脚本提取特征
             List<Float> embedding = extractFeatureWithPython(tempFile.toAbsolutePath().toString());
-            log.info("特征提取成功，维度: {}", embedding.size());
+            log.info("Feature extraction succeeded, dimension: {}", embedding.size());
 
             // 3. 在 Milvus 中搜索
             List<SearchMatchDTO> results = searchInMilvus(embedding, topK);
-            log.info("Milvus 搜索完成，找到 {} 个候选结果", results.size());
+            log.info("Milvus search completed, found {} candidate results", results.size());
 
             // 4. 从 MinIO 补充详细信息并进行初步过滤
             List<SearchMatchDTO> responseList = new ArrayList<>();
@@ -76,7 +76,7 @@ public class FaceSearchService {
                 
                 // 过滤逻辑：如果 MinIO 中找不到对应图片（可能已被删除），则不返回该条结果
                 if (match.getImageBase64() == null || match.getImageBase64().isEmpty()) {
-                    log.warn("检测到遗留向量数据，但 MinIO 中图片已缺失，已跳过显示: {}", match.getId());
+                    log.warn("Detected orphan vector data; image missing in MinIO, skipped result: {}", match.getId());
                     continue;
                 }
                 if (match.isManualUpload()) {
@@ -88,7 +88,7 @@ public class FaceSearchService {
                     responseList.add(match);
                 }
             }
-            log.info("时间范围过滤后结果数: {}", responseList.size());
+            log.info("Result count after time-range filtering: {}", responseList.size());
 
             // 5. 按照时间排序 (从近到远: 降序)
             responseList.sort((a, b) -> {
@@ -249,7 +249,7 @@ public class FaceSearchService {
 
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            log.error("Python 脚本执行失败，退出码: {}", exitCode);
+            log.error("Python script execution failed, exit code: {}", exitCode);
             throw new RuntimeException("Feature extraction failed: " + output.toString());
         }
 
@@ -344,7 +344,7 @@ public class FaceSearchService {
                                     .build());
                     match.setVideoUrl(presignedUrl);
                 } catch (Exception ve) {
-                    log.warn("生成视频预签名链接失败 [ID: {}]: {}", videoId, ve.getMessage());
+                    log.warn("Failed to generate video presigned URL [ID: {}]: {}", videoId, ve.getMessage());
                 }
             } else {
                 log.debug("No videoId found in metadata for capture: {}", match.getId());
@@ -358,7 +358,7 @@ public class FaceSearchService {
             }
 
         } catch (Exception e) {
-            log.warn("无法从 MinIO 获取数据 [ID: {}]: {}", match.getId(), e.getMessage());
+            log.warn("Failed to load data from MinIO [ID: {}]: {}", match.getId(), e.getMessage());
         }
     }
 
