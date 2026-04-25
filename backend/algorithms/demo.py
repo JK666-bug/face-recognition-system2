@@ -1,5 +1,5 @@
 """
-人脸检测演示脚本 (严格 YOLOv8 模式)
+Face detection demo script (strict YOLOv8 mode)
 """
 
 import os
@@ -16,9 +16,9 @@ import uuid
 def main():
     parser = argparse.ArgumentParser(description='YOLOv8 Face Detection & Tracking Unified Demo')
     
-    parser.add_argument('--source', type=str, default='0', help='输入源: 0 (摄像头) 或 视频文件路径')
-    parser.add_argument('--model', type=str, default=None, help='专用面部检测模型路径 (默认自动查找)')
-    parser.add_argument('--location', type=str, default='Unknown', help='抓拍地点 (用于后端存入对象数据库)')
+    parser.add_argument('--source', type=str, default='0', help='Input source: 0 (camera) or video file path')
+    parser.add_argument('--model', type=str, default=None, help='Face detection model path (auto-discovered by default)')
+    parser.add_argument('--location', type=str, default='Unknown', help='Capture location tag for backend storage')
     
     # 尝试从全局配置加载默认置信度
     default_conf = 0.65
@@ -34,43 +34,41 @@ def main():
     except Exception:
         pass
 
-    parser.add_argument('--conf', type=float, default=default_conf, help=f'检测置信度 (当前全局默认: {default_conf})')
-    parser.add_argument('--save', action='store_true', help='是否保存带有检测框的视频结果')
-    parser.add_argument('--output', type=str, default=None, help='输出视频路径')
-    parser.add_argument('--no-display', action='store_true', help='隐藏实时窗口')
-    parser.add_argument('--no-save-faces', action='store_true', help='禁止保存独立的人脸图片到 images 目录')
+    parser.add_argument('--conf', type=float, default=default_conf, help=f'Detection confidence threshold (global default: {default_conf})')
+    parser.add_argument('--save', action='store_true', help='Save annotated output video')
+    parser.add_argument('--output', type=str, default=None, help='Output video path')
+    parser.add_argument('--no-display', action='store_true', help='Hide realtime display window')
+    parser.add_argument('--no-save-faces', action='store_true', help='Do not save cropped face images to images directory')
 
     args = parser.parse_args()
 
     # 按需导入推送模块
     from backend_pusher import pusher
 
-    # 打印系统状态
+    # Print system banner
     print("\n" + "="*55)
-    print("🚀 YOLOv8 实时面部追踪与自动去重系统")
+    print("YOLOv8 Realtime Face Tracking & Deduplication")
     print("="*55)
     
-    # 初始化检测器
+    # Initialize detector
     detector = FaceDetector(
         model_path=args.model,
         confidence_threshold=args.conf
     )
     
-    # 初始化特征提取器
+    # Initialize feature extractor
     extractor = FaceFeatureExtractor(model_name="Facenet512")
     
-    # 生成当前视频练习的唯一 ID
+    # Generate a unique ID for current session
     current_video_session_id = str(uuid.uuid4())[:8] # 取前8位作为 ID
     
     def print_features_callback(face_img, image_path, video_id=None, quality_score=None, capture_reason=None):
-        """抓拍新面孔后的回调：提取并打印特征，并推送到后端"""
-        print(f"🧬  正在为抓拍图片提取特征: {Path(image_path).name}")
-        # 传递图片数组 face_img 避开路径中的中文问题
+        """Callback after capture: extract features and push to backend."""
+        print(f"Extracting features for capture image: {Path(image_path).name}")
+        # Pass face image array to avoid path encoding issues
         embedding = extractor.extract_features(face_img)
         if embedding:
-            # 1. 打印演示
-            print(f"✅  特征提取成功! 维度: {len(embedding)}")
-            # 2. 推送到后端 MQ
+            print(f"Feature extraction succeeded, dimension: {len(embedding)}")
             pusher.push_face_data(
                 embedding,
                 face_img,
@@ -80,32 +78,31 @@ def main():
                 capture_reason=capture_reason
             )
         else:
-            print("⚠️  特征提取未能成功。")
+            print("Feature extraction failed.")
 
     source = args.source
     if source.isdigit():
         source = int(source)
 
     if isinstance(source, str) and (source.lower().endswith(('.jpg', '.jpeg', '.png'))):
-        # 图像模式
-        print(f"🔍 正在处理静态图像: {source}")
+        # Image mode
+        print(f"Processing static image: {source}")
         faces = detector.detect_image(source, save_result=args.save, output_path=args.output)
         
-        # 静态图像也执行一次特征提取演示
+        # Static image mode can optionally run feature extraction demo
         if faces and args.save:
-            # 假设 detect_image 也会保存图片，我们可以对保存的结果进行提取
-            # 为了简单起见，这里可以根据 detect_image 的逻辑手动调用一次
+            # If needed, trigger feature extraction from saved image output here
             pass
             
-        print(f"✅ 完成！在图像中识别到 {len(faces)} 个人脸。")
+        print(f"Done. Detected {len(faces)} face(s) in image.")
     else:
-        # 视频或摄像头模式 (含追踪)
-        print(f"🎬 视频源: {source}")
-        print(f"📸 自动抓拍保存: {'开启' if not args.no_save_faces else '关闭'}")
+        # Video or webcam mode (with tracking)
+        print(f"Video source: {source}")
+        print(f"Auto capture saving: {'enabled' if not args.no_save_faces else 'disabled'}")
         
         stats = detector.detect_video(
             source=source,
-            save_result=args.save or True, # 强制开启保存视频以供回放
+            save_result=args.save or True, # keep video output enabled for replay
             output_path=args.output,
             save_unique_faces=not args.no_save_faces,
             display=not args.no_display,
@@ -114,15 +111,15 @@ def main():
         )
         
         print("\n" + "="*55)
-        print("✅ 任务处理完毕！")
-        print(f"📊 处理帧数: {stats['total_frames']}")
-        print(f"👥 独特人物识别总数: {stats['unique_faces_found']}")
+        print("Task completed.")
+        print(f"Processed frames: {stats['total_frames']}")
+        print(f"Unique tracked identities: {stats['unique_faces_found']}")
         if not args.no_save_faces:
-            print(f"🖼️  所有人脸抓拍照已保存至: {stats['output_dir']}")
+            print(f"Saved face captures to: {stats['output_dir']}")
         
-        # --- 自动通过 MQ 推送视频文件 ---
+        # Push replay video to backend via MQ
         if 'output_path' in stats and os.path.exists(stats['output_path']):
-             print(f"📤 正在通过消息队列推送视频回放...")
+             print("Pushing replay video through message queue...")
              pusher.push_video_data(stats['output_path'], video_id=f"{current_video_session_id}.mp4")
              
         print("="*55 + "\n")

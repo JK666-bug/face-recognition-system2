@@ -27,7 +27,9 @@ D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springb
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\controller\SettingsController.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\FaceRecognitionApplication.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\dto\SearchMatchDTO.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\controller\DetectionTaskController.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\config\PasswordConfig.java
+D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\service\DetectionTaskService.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\dto\AlertEventDTO.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\model\FaceMetadata.java
 D:\前后端开发\前端\vs code 代码\face-recognition-system\backend\springboot\src\main\java\com\face\recognition\service\FaceSearchService.java
