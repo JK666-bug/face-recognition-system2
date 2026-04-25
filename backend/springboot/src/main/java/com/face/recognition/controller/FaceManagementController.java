@@ -19,11 +19,7 @@ import java.util.List;
 
 @RestController
 @RequestMapping("/api/management")
-@CrossOrigin(origins = {
-        "http://localhost:5173",
-        "http://localhost:4173",
-        "http://127.0.0.1:4173"
-})
+@CrossOrigin(originPatterns = {"http://localhost:*", "http://127.0.0.1:*"})
 public class FaceManagementController {
 
     @Autowired

@@ -16,6 +16,7 @@ import java.time.Instant;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -31,19 +32,11 @@ public class DetectionTaskService {
 
     private static final int MAX_LOG_LINES = 500;
     private static final AtomicLong THREAD_COUNTER = new AtomicLong(1);
+    private static final AtomicLong TASK_COUNTER = new AtomicLong(1);
 
     private final Object lock = new Object();
-    private final Deque<String> logBuffer = new ArrayDeque<>();
     private final ExecutorService ioExecutor = Executors.newFixedThreadPool(2, daemonThreadFactory());
-
-    private Process process;
-    private TaskState state = TaskState.IDLE;
-    private Instant startedAt;
-    private String mode = "IDLE";
-    private String source = "0";
-    private String location = "meetingroom";
-    private boolean showWindow = true;
-    private String lastError;
+    private final Map<String, TaskRuntime> taskRuntimes = new LinkedHashMap<>();
 
     public Map<String, Object> startWebcamTask(String requestedLocation, boolean showWindow) {
         return startTask("webcam", "0", requestedLocation, showWindow);
@@ -52,34 +45,25 @@ public class DetectionTaskService {
     public Map<String, Object> startStreamTask(String streamUrl, String requestedLocation, boolean showWindow) {
         String safeSource = (streamUrl == null || streamUrl.isBlank()) ? "" : streamUrl.trim();
         if (safeSource.isEmpty()) {
-            synchronized (lock) {
-                state = TaskState.ERROR;
-                lastError = "Stream URL cannot be empty.";
-                appendLog(lastError);
-                return buildStatusResponse();
-            }
+            return Map.of(
+                    "state", "ERROR",
+                    "running", false,
+                    "lastError", "Stream URL cannot be empty."
+            );
         }
         return startTask("stream", safeSource, requestedLocation, showWindow);
     }
 
     private Map<String, Object> startTask(String taskMode, String taskSource, String requestedLocation, boolean requestedShowWindow) {
         synchronized (lock) {
-            if (process != null && process.isAlive()) {
-                appendLog("Start ignored: a detection task is already running.");
-                return buildStatusResponse();
-            }
-
             String safeLocation = (requestedLocation == null || requestedLocation.isBlank())
                     ? "meetingroom"
                     : requestedLocation.trim();
-
-            state = TaskState.STARTING;
-            lastError = null;
-            location = safeLocation;
-            mode = taskMode;
-            source = taskSource;
-            showWindow = requestedShowWindow;
-            appendLog("Starting " + taskMode + " task at location: " + safeLocation + ", source: " + taskSource);
+            String taskId = "task-" + TASK_COUNTER.getAndIncrement();
+            TaskRuntime taskRuntime = new TaskRuntime(taskId, taskMode, taskSource, safeLocation, requestedShowWindow);
+            taskRuntime.state = TaskState.STARTING;
+            taskRuntimes.put(taskId, taskRuntime);
+            appendLog(taskRuntime, "Starting " + taskMode + " task at location: " + safeLocation + ", source: " + taskSource);
 
             try {
                 Path repoRoot = findRepoRoot();
@@ -101,147 +85,187 @@ public class DetectionTaskService {
                 pb.directory(repoRoot.toFile());
                 pb.redirectErrorStream(true);
 
-                process = pb.start();
-                startedAt = Instant.now();
-                state = TaskState.RUNNING;
+                taskRuntime.process = pb.start();
+                taskRuntime.startedAt = Instant.now();
+                taskRuntime.state = TaskState.RUNNING;
 
-                appendLog("Task started. mode=" + taskMode + ", showWindow=" + requestedShowWindow);
-                streamLogs(process.getInputStream());
-                watchProcessExit(process);
+                appendLog(taskRuntime, "Task started. mode=" + taskMode + ", showWindow=" + requestedShowWindow);
+                streamLogs(taskRuntime, taskRuntime.process.getInputStream());
+                watchProcessExit(taskRuntime);
             } catch (Exception e) {
-                state = TaskState.ERROR;
-                lastError = "Failed to start detection task: " + e.getMessage();
-                appendLog(lastError);
+                taskRuntime.state = TaskState.ERROR;
+                taskRuntime.lastError = "Failed to start detection task: " + e.getMessage();
+                appendLog(taskRuntime, taskRuntime.lastError);
                 log.error("Failed to start detection task", e);
             }
 
-            return buildStatusResponse();
+            return buildTaskResponse(taskRuntime);
         }
     }
 
-    public Map<String, Object> stopWebcamTask() {
+    public Map<String, Object> stopWebcamTask(String taskId) {
         synchronized (lock) {
-            if (process == null || !process.isAlive()) {
-                state = TaskState.IDLE;
-                appendLog("Stop ignored: detection task not running.");
-                return buildStatusResponse();
+            TaskRuntime taskRuntime = taskRuntimes.get(taskId);
+            if (taskRuntime == null) {
+                return Map.of("error", "Task not found", "taskId", taskId);
+            }
+            if (taskRuntime.process == null || !taskRuntime.process.isAlive()) {
+                taskRuntime.state = TaskState.IDLE;
+                appendLog(taskRuntime, "Stop ignored: detection task not running.");
+                return buildTaskResponse(taskRuntime);
             }
 
-            state = TaskState.STOPPING;
-            appendLog("Stopping detection task...");
-            Process current = process;
+            taskRuntime.state = TaskState.STOPPING;
+            appendLog(taskRuntime, "Stopping detection task...");
+            Process current = taskRuntime.process;
             current.destroy();
 
             try {
                 if (!current.waitFor(5, TimeUnit.SECONDS)) {
-                    appendLog("Force stopping detection task.");
+                    appendLog(taskRuntime, "Force stopping detection task.");
                     current.destroyForcibly();
                     current.waitFor(5, TimeUnit.SECONDS);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                appendLog("Stop interrupted, forcing process termination.");
+                appendLog(taskRuntime, "Stop interrupted, forcing process termination.");
                 current.destroyForcibly();
             } finally {
-                process = null;
-                startedAt = null;
-                state = TaskState.IDLE;
-                mode = "IDLE";
-                source = "0";
+                taskRuntime.process = null;
+                taskRuntime.startedAt = null;
+                taskRuntime.state = TaskState.IDLE;
             }
 
-            return buildStatusResponse();
+            return buildTaskResponse(taskRuntime);
         }
     }
 
-    public Map<String, Object> getStatus() {
+    public List<Map<String, Object>> listTasks() {
         synchronized (lock) {
-            if (process != null && !process.isAlive() && state == TaskState.RUNNING) {
-                state = TaskState.IDLE;
-                process = null;
-                startedAt = null;
+            List<Map<String, Object>> response = new ArrayList<>();
+            for (TaskRuntime taskRuntime : taskRuntimes.values()) {
+                if (taskRuntime.process != null && !taskRuntime.process.isAlive() && taskRuntime.state == TaskState.RUNNING) {
+                    taskRuntime.state = TaskState.IDLE;
+                    taskRuntime.process = null;
+                    taskRuntime.startedAt = null;
+                }
+                response.add(buildTaskResponse(taskRuntime));
             }
-            return buildStatusResponse();
-        }
-    }
-
-    public Map<String, Object> getLogs(int tail) {
-        synchronized (lock) {
-            int safeTail = Math.max(1, Math.min(tail, MAX_LOG_LINES));
-            List<String> lines = new ArrayList<>(logBuffer);
-            int from = Math.max(0, lines.size() - safeTail);
-
-            Map<String, Object> response = new LinkedHashMap<>();
-            response.put("lines", lines.subList(from, lines.size()));
-            response.put("totalLines", lines.size());
-            response.put("tail", safeTail);
-            response.put("state", state.name());
+            response.sort(Comparator.comparing(
+                    item -> (String) item.getOrDefault("startedAt", ""),
+                    Comparator.nullsLast(Comparator.reverseOrder())
+            ));
             return response;
         }
     }
 
-    private void streamLogs(InputStream inputStream) {
+    public Map<String, Object> getTaskStatus(String taskId) {
+        synchronized (lock) {
+            TaskRuntime taskRuntime = taskRuntimes.get(taskId);
+            if (taskRuntime == null) {
+                return Map.of("error", "Task not found", "taskId", taskId);
+            }
+            return buildTaskResponse(taskRuntime);
+        }
+    }
+
+    public Map<String, Object> getLogs(String taskId, int tail) {
+        synchronized (lock) {
+            TaskRuntime taskRuntime = taskRuntimes.get(taskId);
+            if (taskRuntime == null) {
+                return Map.of("error", "Task not found", "taskId", taskId, "lines", List.of());
+            }
+            int safeTail = Math.max(1, Math.min(tail, MAX_LOG_LINES));
+            List<String> lines = new ArrayList<>(taskRuntime.logBuffer);
+            int from = Math.max(0, lines.size() - safeTail);
+
+            Map<String, Object> response = new LinkedHashMap<>();
+            response.put("taskId", taskId);
+            response.put("lines", lines.subList(from, lines.size()));
+            response.put("totalLines", lines.size());
+            response.put("tail", safeTail);
+            response.put("state", taskRuntime.state.name());
+            return response;
+        }
+    }
+
+    public Map<String, Object> deleteTask(String taskId) {
+        synchronized (lock) {
+            TaskRuntime taskRuntime = taskRuntimes.get(taskId);
+            if (taskRuntime == null) {
+                return Map.of("error", "Task not found", "taskId", taskId);
+            }
+            if (taskRuntime.process != null && taskRuntime.process.isAlive()) {
+                return Map.of("error", "Task is running. Stop it before deletion.", "taskId", taskId);
+            }
+            taskRuntimes.remove(taskId);
+            return Map.of("deleted", true, "taskId", taskId);
+        }
+    }
+
+    private void streamLogs(TaskRuntime taskRuntime, InputStream inputStream) {
         ioExecutor.submit(() -> {
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream, StandardCharsets.UTF_8))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
-                    appendLog(line);
+                    appendLog(taskRuntime, line);
                 }
             } catch (IOException e) {
-                appendLog("Log stream error: " + e.getMessage());
+                appendLog(taskRuntime, "Log stream error: " + e.getMessage());
             }
         });
     }
 
-    private void watchProcessExit(Process runningProcess) {
+    private void watchProcessExit(TaskRuntime taskRuntime) {
         ioExecutor.submit(() -> {
             try {
+                Process runningProcess = taskRuntime.process;
+                if (runningProcess == null) {
+                    return;
+                }
                 int exitCode = runningProcess.waitFor();
                 synchronized (lock) {
-                    if (process == runningProcess) {
-                        process = null;
-                        startedAt = null;
-                        if (state != TaskState.STOPPING) {
-                            state = exitCode == 0 ? TaskState.IDLE : TaskState.ERROR;
+                    if (taskRuntime.process == runningProcess) {
+                        taskRuntime.process = null;
+                        taskRuntime.startedAt = null;
+                        if (taskRuntime.state != TaskState.STOPPING) {
+                            taskRuntime.state = exitCode == 0 ? TaskState.IDLE : TaskState.ERROR;
                             if (exitCode != 0) {
-                                lastError = "Detection task exited unexpectedly, exitCode=" + exitCode;
+                                taskRuntime.lastError = "Detection task exited unexpectedly, exitCode=" + exitCode;
                             }
                         } else {
-                            state = TaskState.IDLE;
-                        }
-                        if (state == TaskState.IDLE) {
-                            mode = "IDLE";
-                            source = "0";
+                            taskRuntime.state = TaskState.IDLE;
                         }
                     }
-                    appendLog("Detection task exited with code: " + exitCode);
+                    appendLog(taskRuntime, "Detection task exited with code: " + exitCode);
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                appendLog("Process monitor interrupted.");
+                appendLog(taskRuntime, "Process monitor interrupted.");
             }
         });
     }
 
-    private Map<String, Object> buildStatusResponse() {
+    private Map<String, Object> buildTaskResponse(TaskRuntime taskRuntime) {
         Map<String, Object> response = new LinkedHashMap<>();
-        response.put("state", state.name());
-        response.put("running", process != null && process.isAlive());
-        response.put("mode", mode);
-        response.put("source", source);
-        response.put("location", location);
-        response.put("showWindow", showWindow);
-        response.put("startedAt", startedAt != null ? startedAt.toString() : null);
-        response.put("uptimeSec", startedAt != null ? Duration.between(startedAt, Instant.now()).toSeconds() : 0);
-        response.put("lastError", lastError);
+        response.put("taskId", taskRuntime.taskId);
+        response.put("state", taskRuntime.state.name());
+        response.put("running", taskRuntime.process != null && taskRuntime.process.isAlive());
+        response.put("mode", taskRuntime.mode);
+        response.put("source", taskRuntime.source);
+        response.put("location", taskRuntime.location);
+        response.put("showWindow", taskRuntime.showWindow);
+        response.put("startedAt", taskRuntime.startedAt != null ? taskRuntime.startedAt.toString() : null);
+        response.put("uptimeSec", taskRuntime.startedAt != null ? Duration.between(taskRuntime.startedAt, Instant.now()).toSeconds() : 0);
+        response.put("lastError", taskRuntime.lastError);
         return response;
     }
 
-    private void appendLog(String line) {
+    private void appendLog(TaskRuntime taskRuntime, String line) {
         synchronized (lock) {
-            logBuffer.addLast(line);
-            while (logBuffer.size() > MAX_LOG_LINES) {
-                logBuffer.removeFirst();
+            taskRuntime.logBuffer.addLast(line);
+            while (taskRuntime.logBuffer.size() > MAX_LOG_LINES) {
+                taskRuntime.logBuffer.removeFirst();
             }
         }
     }
@@ -281,5 +305,26 @@ public class DetectionTaskService {
         RUNNING,
         STOPPING,
         ERROR
+    }
+
+    private static final class TaskRuntime {
+        private final String taskId;
+        private final String mode;
+        private final String source;
+        private final String location;
+        private final boolean showWindow;
+        private final Deque<String> logBuffer = new ArrayDeque<>();
+        private Process process;
+        private TaskState state = TaskState.IDLE;
+        private Instant startedAt;
+        private String lastError;
+
+        private TaskRuntime(String taskId, String mode, String source, String location, boolean showWindow) {
+            this.taskId = taskId;
+            this.mode = mode;
+            this.source = source;
+            this.location = location;
+            this.showWindow = showWindow;
+        }
     }
 }

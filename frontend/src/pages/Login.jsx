@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Shield, Lock, User, Loader2, AlertCircle } from 'lucide-react';
 
+const API_BASE = import.meta.env.VITE_API_BASE || `${window.location.protocol}//${window.location.hostname}:8080`;
+
 const Login = ({ onLogin }) => {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
@@ -13,7 +15,7 @@ const Login = ({ onLogin }) => {
         setError('');
 
         try {
-            const response = await fetch('http://localhost:8080/api/auth/login', {
+            const response = await fetch(`${API_BASE}/api/auth/login`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ username, password })
