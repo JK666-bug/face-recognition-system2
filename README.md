@@ -47,7 +47,7 @@ flowchart LR
 
 人物库上传和以脸搜图不走消息队列。Spring Boot 调用 `backend/algorithms/extract_cli.py`：先检出最大的一张脸，再提向量。
 
-### 设计上分开的三件事
+### 设计上分开的四件事
 
 - **三个 ID。** `track_id` 只在一次视频里用来跨帧跟踪，不会发给后端。`face_id` 是一次抓拍。`people_id` 是跨镜头的同一个人，多条抓拍可以共用。
 - **四类抓拍时机。** 脸第一次进入画面推 `ENTER`；更正、置信度明显更高时推 `QUALITY`；同一张脸超过 60 秒再推 `STAYING`；离开画面推 `LEAVE`。
