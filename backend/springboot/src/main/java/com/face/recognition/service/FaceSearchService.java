@@ -56,42 +56,42 @@ public class FaceSearchService {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public List<SearchMatchDTO> searchByImage(MultipartFile file, Integer topK, String startTime, String endTime) throws Exception {
-        // 1. 保存临时文件
+        // 1. Write a temp file
         Path tempFile = Files.createTempFile("search_", ".jpg");
         file.transferTo(tempFile.toFile());
-        log.info("临时图片已保存至: {}", tempFile);
+        log.info("Temporary image saved to: {}", tempFile);
 
         try {
-            // 2. 调用 Python 脚本提取特征
+            // 2. Ask the Python script for an embedding
             List<Float> embedding = extractFeatureWithPython(tempFile.toAbsolutePath().toString());
-            log.info("特征提取成功，维度: {}", embedding.size());
+            log.info("Embedding extracted, dimensions: {}", embedding.size());
 
-            // 3. 在 Milvus 中搜索
+            // 3. Search Milvus
             List<SearchMatchDTO> results = searchInMilvus(embedding, topK);
-            log.info("Milvus 搜索完成，找到 {} 个候选结果", results.size());
+            log.info("Milvus search returned {} candidates", results.size());
 
-            // 4. 从 MinIO 补充详细信息并进行初步过滤
+            // 4. Fill details from MinIO and drop missing objects
             List<SearchMatchDTO> responseList = new ArrayList<>();
             for (SearchMatchDTO match : results) {
                 populateMetadataFromMinio(match);
                 
-                // 过滤逻辑：如果 MinIO 中找不到对应图片（可能已被删除），则不返回该条结果
+                // Skip a vector whose image is already gone from MinIO
                 if (match.getImageBase64() == null || match.getImageBase64().isEmpty()) {
-                    log.warn("检测到遗留向量数据，但 MinIO 中图片已缺失，已跳过显示: {}", match.getId());
+                    log.warn("Skipping orphan vector. Image missing in MinIO: {}", match.getId());
                     continue;
                 }
                 if (match.isManualUpload()) {
                     continue;
                 }
 
-                // 时间过滤逻辑
+                // Time-range filter
                 if (isWithinTimeRange(match.getTimestamp(), startTime, endTime)) {
                     responseList.add(match);
                 }
             }
-            log.info("时间范围过滤后结果数: {}", responseList.size());
+            log.info("Results after the time filter: {}", responseList.size());
 
-            // 5. 按照时间排序 (从近到远: 降序)
+            // 5. Newest first
             responseList.sort((a, b) -> {
                 if (a.getTimestamp() == null || "Unknown".equals(a.getTimestamp()))
                     return 1;
@@ -102,7 +102,7 @@ public class FaceSearchService {
 
             return responseList;
         } finally {
-            // 清理临时文件
+            // Delete the temp file
             Files.deleteIfExists(tempFile);
         }
     }
@@ -191,31 +191,31 @@ public class FaceSearchService {
     }
 
     private boolean isWithinTimeRange(String timestamp, String start, String end) {
-        // 如果没有传入过滤条件，默认通过
+        // No time filter means every row passes
         if ((start == null || start.isEmpty()) && (end == null || end.isEmpty())) {
             return true;
         }
         
-        // 如果抓拍时间未知且设置了过滤，则排除
+        // An unknown capture time is excluded when a filter is set
         if (timestamp == null || "Unknown".equals(timestamp)) {
             return false;
         }
 
         try {
-            // 前端传入格式可以是 "yyyy-MM-dd HH:mm:ss" 或 "yyyy-MM-dd"
-            // Python 端存储格式是 "yyyy-MM-dd HH:mm:ss"
-            // 这里使用字符串直接比较即可 (因为是标准化格式)
+            // The console sends "yyyy-MM-dd HH:mm:ss" or "yyyy-MM-dd"
+            // Python stores "yyyy-MM-dd HH:mm:ss"
+            // The format sorts correctly as text
             
             boolean startOk = true;
             if (start != null && !start.isEmpty()) {
-                // 如果传入的是日期 YYYY-MM-DD，补全为 YYYY-MM-DD 00:00:00
+                // A date-only start becomes YYYY-MM-DD 00:00:00
                 String fullStart = start.length() == 10 ? start + " 00:00:00" : start;
                 startOk = timestamp.compareTo(fullStart) >= 0;
             }
 
             boolean endOk = true;
             if (end != null && !end.isEmpty()) {
-                // 如果传入的是日期 YYYY-MM-DD，补全为 YYYY-MM-DD 23:59:59
+                // A date-only end becomes YYYY-MM-DD 23:59:59
                 String fullEnd = end.length() == 10 ? end + " 23:59:59" : end;
                 endOk = timestamp.compareTo(fullEnd) <= 0;
             }
@@ -245,7 +245,7 @@ public class FaceSearchService {
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream(), "UTF-8"))) {
             String line;
             while ((line = reader.readLine()) != null) {
-                // 过滤掉 tensorflow 的警告信息，只寻找最终的 JSON
+                // Ignore TensorFlow warnings and keep the final JSON line
                 if (line.startsWith("{") && line.endsWith("}")) {
                     output.append(line);
                 }
@@ -254,7 +254,7 @@ public class FaceSearchService {
 
         int exitCode = process.waitFor();
         if (exitCode != 0) {
-            log.error("Python 脚本执行失败，退出码: {}", exitCode);
+            log.error("Python script failed with exit code: {}", exitCode);
             throw new RuntimeException("Feature extraction failed: " + output.toString());
         }
 
@@ -291,7 +291,7 @@ public class FaceSearchService {
 
         float threshold = settingsService.getSearchThreshold();
         for (io.milvus.response.SearchResultsWrapper.IDScore idScore : idScores) {
-            // 过滤逻辑：使用动态配置的相似度阈值
+            // Keep scores at or above the configured threshold
             if (idScore.getScore() >= threshold) {
                 matches.add(SearchMatchDTO.builder()
                         .id(idScore.getStrID())
@@ -308,7 +308,7 @@ public class FaceSearchService {
         try {
             String objectName = match.getId() + ".jpg";
 
-            // 1. 获取元数据 (位置和时间)
+            // 1. Read location and time from metadata
             StatObjectResponse stat = minioClient.statObject(
                     StatObjectArgs.builder().bucket(bucketName).object(objectName).build());
 
@@ -331,7 +331,7 @@ public class FaceSearchService {
             match.setManualUpload(MinioMetadataFlags.isManualUpload(meta));
             applyPeopleAlertState(match);
 
-            // 1.1 获取关联视频 ID 并生成预签名 URL
+            // 1.1 Build a presigned URL for the related video
             String videoId = meta.get("video_id");
             if (videoId == null) videoId = meta.get("video-id");
             if (videoId == null) videoId = meta.get("x-amz-meta-video_id");
@@ -349,13 +349,13 @@ public class FaceSearchService {
                                     .build());
                     match.setVideoUrl(presignedUrl);
                 } catch (Exception ve) {
-                    log.warn("生成视频预签名链接失败 [ID: {}]: {}", videoId, ve.getMessage());
+                    log.warn("Failed to presign video {}: {}", videoId, ve.getMessage());
                 }
             } else {
                 log.debug("No videoId found in metadata for capture: {}", match.getId());
             }
 
-            // 2. 获取图片缩略图 (转换为 Base64)
+            // 2. Load the thumbnail and encode it as Base64
             try (InputStream stream = minioClient.getObject(
                     GetObjectArgs.builder().bucket(bucketName).object(objectName).build())) {
                 byte[] bytes = stream.readAllBytes();
@@ -363,7 +363,7 @@ public class FaceSearchService {
             }
 
         } catch (Exception e) {
-            log.warn("无法从 MinIO 获取数据 [ID: {}]: {}", match.getId(), e.getMessage());
+            log.warn("Cannot read MinIO object {}: {}", match.getId(), e.getMessage());
         }
     }
 

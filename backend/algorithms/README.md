@@ -1,30 +1,30 @@
-# 抓拍引擎
+# Capture engine
 
-这个目录负责看视频：YOLOv8 追踪人脸，Facenet512 抽出 512 维向量，再通过 RabbitMQ 交给 Spring Boot。系统怎么串起来，以仓库根目录的 [README](../../README.md) 为准。
+This directory watches video. YOLOv8 tracks faces, Facenet512 builds a 512-d vector, and RabbitMQ delivers that payload to Spring Boot. How the pieces connect is documented in the repository [README](../../README.md).
 
-## 运行
+## Run
 
-在仓库根目录激活虚拟环境之后：
+From the repository root, with the virtualenv active:
 
 ```bash
 python backend/algorithms/demo.py --source 0 --location "Entrance"
 python backend/algorithms/demo.py --source path/to/video.mp4 --location "Main Gate"
 ```
 
-| 参数 | 作用 | 默认 |
+| Flag | Meaning | Default |
 | --- | --- | --- |
-| `--source` | 摄像头编号或视频路径 | `0` |
-| `--location` | 写入抓拍元数据的地点 | `Unknown` |
-| `--conf` | 检测置信度 | `config/settings.json` 里的 `captureConfidence` |
-| `--model` | 检测权重 | `models/yolov8n-face.pt` |
-| `--no-display` | 不弹预览窗口 | 关闭 |
-| `--no-save-faces` | 不把人脸小图写到本地 | 关闭。本地不保存时仍会推送后端 |
-| `--output` | 标注视频的输出路径 | 由检测流程生成，供回放上传 |
+| `--source` | Camera index or video path | `0` |
+| `--location` | Location stored on the capture | `Unknown` |
+| `--conf` | Detection confidence | `captureConfidence` in `config/settings.json` |
+| `--model` | Detector weights | `models/yolov8n-face.pt` |
+| `--no-display` | Hide the preview window | off |
+| `--no-save-faces` | Skip local face crops | off. The backend still receives the capture |
+| `--output` | Path of the annotated video | Chosen by the detector, then uploaded for playback |
 
-## Java 调用的脚本
+## Script called by Java
 
-`extract_cli.py` 接收一张图片路径。它先检测并裁出面积最大的脸，再向标准输出打一行 JSON embedding。人物库上传和以脸搜图走这里。调试时可以加 `--no-detect`，改为对整张图提特征。
+`extract_cli.py` takes an image path. It detects faces, crops the largest one, and prints one JSON line with the embedding. People-library upload and photo search use this script. `--no-detect` embeds the whole image instead, for debugging.
 
-## 模型
+## Models
 
-`feature_extraction.py` 把 `DEEPFACE_HOME` 指到 `models/`。找不到 `models/yolov8n-face.pt` 时，检测器会改用通用的 `yolov8n.pt`。
+`feature_extraction.py` sets `DEEPFACE_HOME` to `models/`. If `models/yolov8n-face.pt` is missing, the detector falls back to generic `yolov8n.pt`.

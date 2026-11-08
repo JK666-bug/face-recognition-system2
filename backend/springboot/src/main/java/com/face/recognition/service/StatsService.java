@@ -222,7 +222,7 @@ public class StatsService {
     }
 
     /**
-     * 今日抓拍：以元数据 timestamp（业务抓拍日）为准；解析失败则回退对象 lastModified。
+     * Captures today use metadata timestamp. If it cannot be parsed, fall back to lastModified.
      */
     private LocalDate parseCaptureDateFromMeta(Map<String, String> meta, Item item) {
         String ts = firstMeta(meta, "timestamp");
@@ -239,7 +239,7 @@ public class StatsService {
     }
 
     /**
-     * 今日人物活动：以元数据 last_time 为准；解析失败则回退 lastModified。
+     * People active today use metadata last_time. If it cannot be parsed, fall back to lastModified.
      */
     private LocalDate parsePeopleActivityDateFromMeta(Map<String, String> meta, Item item) {
         String lt = firstMeta(meta, "last_time");

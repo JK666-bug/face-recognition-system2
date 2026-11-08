@@ -19,8 +19,8 @@ import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
 import PeopleLibrary from './PeopleLibrary';
 
-// 过短会导致刚收到的预警很快被清掉，页面长期显示 “No live suspect alerts yet.”
-const ALERT_RETENTION_MS = 6 * 60 * 60 * 1000; // 6 小时内保留在列表与 localStorage
+// A short window clears a new alert before anyone can read it, so the page stays on "No live suspect alerts yet."
+const ALERT_RETENTION_MS = 6 * 60 * 60 * 1000; // Keep alerts in the list and localStorage for 6 hours.
 
 const DashboardContent = ({ liveAlerts, onDismissAlert, alertWsStatus }) => {
     const [stats, setStats] = useState({

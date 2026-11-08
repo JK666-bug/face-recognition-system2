@@ -1,6 +1,5 @@
 """
-辅助工具函数模块
-提供人脸检测相关的辅助功能
+Helpers for face detection.
 """
 
 import cv2
@@ -13,13 +12,13 @@ import time
 
 def get_next_video_id(directory: Path) -> int:
     """
-    扫描目录，根据文件名 video_N_face_M.jpg 找到下一个可用的视频 ID (N+1)
+    Scan video_N_face_M.jpg names and return the next video id.
     """
     if not directory.exists():
         return 1
     
     max_id = 0
-    # 匹配文件名中的 video_(\d+)_
+    # Match video_<id>_ in the filename
     pattern = re.compile(r'video_(\d+)_face_')
     
     for file in directory.glob('*.jpg'):
@@ -34,32 +33,32 @@ def get_next_video_id(directory: Path) -> int:
 
 def parse_yolo_results(results, is_face_model: bool = True) -> List[Dict]:
     """
-    解析 YOLOv8 检测结果
+    Parse YOLOv8 detection results
     
     Args:
-        results: YOLOv8 模型的检测结果对象
-        is_face_model: 是否使用专用人脸检测模型 (如果是通用模型，默认检测类别0通常为人)
+        results: YOLOv8 result object
+        is_face_model: dedicated face model. A generic model treats class person as a face.
         
     Returns:
-        List[Dict]: 包含人脸信息的字典列表
+        List[Dict]: one dict per face
     """
     faces = []
     
     for result in results:
         boxes = result.boxes
         for box in boxes:
-            # 获取边界框坐标 (xyxy 格式)
+            # Bounding box in xyxy
             x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
             
-            # 获取置信度
+            # Confidence
             confidence = float(box.conf[0].cpu().numpy())
             
-            # 获取类别
+            # Class id
             class_id = int(box.cls[0].cpu().numpy())
             class_name = result.names[class_id] if hasattr(result, 'names') else 'face'
             
-            # 如果是专用人脸模型，直接记录
-            # 如果是通用模型识别为"person"，但在本项目语境下我们追求的是专门的人脸模型
+            # A dedicated face model keeps every box.
+            # A generic model only keeps the person class.
             if is_face_model or class_name == 'person':
                 faces.append({
                     'bbox': [int(x1), int(y1), int(x2), int(y2)],
@@ -73,7 +72,7 @@ def parse_yolo_results(results, is_face_model: bool = True) -> List[Dict]:
 def draw_faces(image: np.ndarray, faces: List[Dict], 
                color: Tuple[int, int, int] = (0, 255, 0),
                thickness: int = 2) -> np.ndarray:
-    """在图像上绘制人脸检测框"""
+    """Draw face boxes on a copy of the image."""
     img_copy = image.copy()
     
     for face in faces:
@@ -91,7 +90,7 @@ def draw_faces(image: np.ndarray, faces: List[Dict],
 
 
 def crop_face(image: np.ndarray, bbox: List[int], padding: int = 20) -> np.ndarray:
-    """裁剪人脸区域"""
+    """Crop a face with padding."""
     x1, y1, x2, y2 = bbox
     h, w = image.shape[:2]
     
@@ -106,7 +105,7 @@ def crop_face(image: np.ndarray, bbox: List[int], padding: int = 20) -> np.ndarr
 def save_faces(image: np.ndarray, faces: List[Dict], output_dir: str, 
                video_id: int = 1, face_id: int = 1) -> List[str]:
     """
-    保存人脸图像，使用格式: video_N_face_M.jpg
+    Save crops as video_N_face_M.jpg
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -114,7 +113,7 @@ def save_faces(image: np.ndarray, faces: List[Dict], output_dir: str,
     saved_paths = []
     for i, face in enumerate(faces):
         face_img = crop_face(image, face['bbox'])
-        # 使用传入的编号
+        # Use the caller-supplied ids
         filename = output_path / f"video_{video_id}_face_{face_id + i}.jpg"
         cv2.imwrite(str(filename), face_img)
         saved_paths.append(str(filename))
@@ -124,13 +123,13 @@ def save_faces(image: np.ndarray, faces: List[Dict], output_dir: str,
 
 def get_face_embedding(face_img: np.ndarray):
     """
-    提取人脸特征向量 (利用 DeepFace)
-    如果 DeepFace 未安装或由于环境问题（如 tf-keras 缺失）无法加载，则使用简单的直方图作为替代。
+    Extract an embedding with DeepFace.
+    If DeepFace cannot load, fall back to a color histogram.
     """
     try:
-        # 尝试延迟导入，因为 DeepFace 启动较慢且可能抛出兼容性异常
+        # Import lazily. DeepFace is slow to start and may fail to load.
         from deepface import DeepFace
-        # 强制不在控制台打印冗长信息
+        # Skip extra detector logging
         embeddings = DeepFace.represent(
             face_img, 
             model_name="Facenet", 
@@ -140,13 +139,13 @@ def get_face_embedding(face_img: np.ndarray):
         if embeddings:
             return embeddings[0]["embedding"]
     except (ImportError, ValueError, Exception) as e:
-        # 捕获所有可能的初始化错误，确保程序不崩溃
-        # 仅在第一次失败时打印简短提示
+        # Keep running if DeepFace fails to initialize.
+        # Warn once.
         if not hasattr(get_face_embedding, "warned"):
-            print(f"ℹ️  提示: 未能加载 DeepFace 增强特性 (原因: {type(e).__name__})，将使用基础特征比对...")
+            print(f"DeepFace is unavailable ({type(e).__name__}). Using a color histogram instead.")
             get_face_embedding.warned = True
         
-        # 降级方案：使用彩色直方图
+        # Fallback: color histogram
         hist = cv2.calcHist([face_img], [0, 1, 2], None, [8, 8, 8], [0, 256, 0, 256, 0, 256])
         cv2.normalize(hist, hist)
         return hist.flatten()
@@ -154,14 +153,14 @@ def get_face_embedding(face_img: np.ndarray):
 
 
 def calculate_similarity(feat1, feat2) -> float:
-    """计算两个特征向量的余弦相似度"""
+    """Cosine similarity of two embeddings."""
     if feat1 is None or feat2 is None:
         return 0.0
     
-    if isinstance(feat1, np.ndarray) and feat1.ndim > 1: # 直方图模式
+    if isinstance(feat1, np.ndarray) and feat1.ndim > 1:  # histogram fallback
         return cv2.compareHist(feat1.reshape(-1, 1), feat2.reshape(-1, 1), cv2.HISTCMP_CORREL)
         
-    # 余弦相似度
+    # Cosine similarity
     a = np.array(feat1)
     b = np.array(feat2)
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b) + 1e-6)
@@ -169,28 +168,28 @@ def calculate_similarity(feat1, feat2) -> float:
 
 def calculate_face_orientation(keypoints) -> float:
     """
-    根据人脸 5 个关键点计算偏转角评分 (Yaw Score)。
-    数值越接近 0 表示正脸（鼻子在两眼中心），数值越大表示侧脸越严重。
-    keypoints: 坐标数组，通常为 [[lx, ly], [rx, ry], [nx, ny], ...]
-    返回: 偏离比率 (0.0 ~ 0.5+)
+    Yaw score from five face keypoints.
+    0 is frontal (the nose sits between the eyes). Larger means a stronger profile.
+    keypoints: [[lx, ly], [rx, ry], [nx, ny], ...]
+    Returns an offset ratio, about 0.0 to 0.5+.
     """
     if keypoints is None or len(keypoints) < 3:
-        return 1.0 # 无法判断，视为极差
+        return 1.0  # unknown pose, treat as a poor view
     
-    # 提取 x 坐标 (前三点通常是：左眼、右眼、鼻子)
+    # x coordinates. The first three points are left eye, right eye, nose.
     try:
-        lx = keypoints[0][0] # 左眼 X
-        rx = keypoints[1][0] # 右眼 X
-        nx = keypoints[2][0] # 鼻子 X
+        lx = keypoints[0][0]  # left eye x
+        rx = keypoints[1][0]  # right eye x
+        nx = keypoints[2][0]  # nose x
         
-        # 计算眼睛间距
+        # Distance between the eyes
         eye_dist = abs(rx - lx)
         if eye_dist < 1e-5: 
             return 1.0
             
-        # 计算鼻子相对于左眼的水平比例，正脸时应接近 0.5
+        # Nose position between the eyes. Frontal faces sit near 0.5.
         ratio = abs(nx - lx) / eye_dist
-        # 归一化偏移量：0.0 表示绝对正脸，0.5+ 表示侧脸
+        # 0.0 is frontal. 0.5 and above is a strong profile.
         yaw_score = abs(ratio - 0.5)
         return float(yaw_score)
     except Exception:

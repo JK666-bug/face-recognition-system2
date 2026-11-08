@@ -1,8 +1,8 @@
 # Face Recognition System
 
-监控视频里的人脸检测、跨镜头归并、以脸搜轨迹，以及嫌疑人实时预警。
+Detect faces in a camera or video, group the same person across shots, search a trajectory by photo, and raise a live alert when a marked suspect appears.
 
-Python 负责看视频，Java 负责存储和检索，React 负责给管理员使用。一条抓拍离开摄像头之后，会变成一张人脸图和一个 512 维向量，再进入人物库。被标成嫌疑人的人再次出现时，Dashboard 会马上收到预警。
+Python watches the video. Java stores and searches. React is the admin console. Each capture becomes one face image plus a 512-dimensional vector, then joins a person record. A later match against the suspect set is pushed to the dashboard over WebSocket.
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Java 17](https://img.shields.io/badge/Java-17-orange)](backend/springboot/pom.xml)
@@ -10,100 +10,103 @@ Python 负责看视频，Java 负责存储和检索，React 负责给管理员�
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-yellow)](backend/requirements.txt)
 [![React 18](https://img.shields.io/badge/React-18-61dafb)](frontend/package.json)
 
-当前版本见 [v5.0.0](https://github.com/JK666-bug/face-recognition-system2/releases/tag/v5.0.0) 和 [CHANGELOG](CHANGELOG.md)。数据怎么流、三套 ID 和阈值为什么分开，写在 [技术说明](docs/PROJECT_TECHNICAL_SPEC_ZH.txt)。
+Current release: [v5.0.0](https://github.com/JK666-bug/face-recognition-system2/releases/tag/v5.0.0). History is in [CHANGELOG](CHANGELOG.md). How IDs, thresholds, and storage fit together is in the [technical note](docs/TECHNICAL_SPEC.md).
 
-## 它做什么
+## Interface
 
-管理端登录后是一块 Dashboard，页签和代码里的名字一致：
+The console is a single dashboard. `admin` / `admin` is created on first boot as `SUPER_ADMIN`. Accounts created under Access Control are `ADMIN` and can open only Analytics Overview and Trajectory Search.
 
-| 页签 | 谁能看 | 做什么 |
+| Tab | Who | What it does |
 | --- | --- | --- |
-| Analytics Overview | 所有管理员 | 今日抓拍、人脸和人物数量，Milvus / MinIO / RabbitMQ 状态，嫌疑人实时预警 |
-| Trajectory Search | 所有管理员 | 上传一张脸，按相似度和时间在抓拍库里找轨迹，并回放对应视频 |
-| People Library | 超级管理员 | 人物底库。上传照片建档、标记嫌疑人、合并重复人物、换代表脸、删除 |
-| Dataset | 超级管理员 | 浏览和删除抓拍记录 |
-| Access Control | 超级管理员 | 注册管理员、提升为超级管理员、删除普通管理员 |
-| Settings | 超级管理员 | 调整抓拍置信度和三套比对阈值 |
+| Analytics Overview | Every admin | Captures, face and person counts, Milvus / MinIO / RabbitMQ health, live suspect alerts |
+| Trajectory Search | Every admin | Upload a face, filter by similarity and time, play the linked video |
+| People Library | Super admin | Enroll a person, mark a suspect, merge duplicates, replace the photo, delete |
+| Dataset | Super admin | Browse and delete capture records |
+| Access Control | Super admin | Register admins, promote a super admin, delete a normal admin |
+| Settings | Super admin | Capture confidence and the three match thresholds |
 
-默认账号 `admin` / `admin` 是超级管理员。在 Access Control 里新建的用户角色是 `ADMIN`，只能看到总览和轨迹检索。
+<p>
+  <img src="docs/images/dashboard.jpg" alt="Analytics overview with live suspect alerts" width="32%">
+  <img src="docs/images/trajectory-search.jpg" alt="Trajectory search results for an uploaded face" width="32%">
+  <img src="docs/images/people-library.jpg" alt="People library with suspect flags and merge actions" width="32%">
+</p>
 
-## 架构
+<p>
+  <img src="docs/images/dataset.jpg" alt="Dataset explorer of captures and uploaded faces" width="32%">
+  <img src="docs/images/settings.jpg" alt="Threshold settings for capture, search, people match, and alerts" width="32%">
+  <img src="docs/images/login.jpg" alt="FaceGuard AI login screen" width="32%">
+</p>
 
-```mermaid
-flowchart LR
-  source[摄像头或视频] --> yolo[YOLOv8 追踪]
-  yolo --> embed[Facenet512]
-  embed --> mq[RabbitMQ]
-  mq --> api[Spring Boot]
-  api --> minio[MinIO 图片]
-  api --> milvus[Milvus 向量]
-  api --> mysql[MySQL 账号]
-  api --> ws[WebSocket 预警]
-  ui[React 管理端] --> api
-  ws --> ui
-```
+## Architecture
 
-抓拍进程读摄像头或视频文件，用 YOLOv8 的 `track` 在镜头里跟着每一张脸。需要入库时用 DeepFace 的 Facenet512 抽出 512 维向量，经 RabbitMQ 的 `face_recognition_queue` 发给 Spring Boot。Java 把人脸图写入 MinIO，把向量写入 Milvus，用 MySQL 只保存登录账号。浏览器通过 REST 和 JWT 访问 `8080`，预警走 `/ws-alerts`。
+<img src="docs/images/architecture-layers.png" alt="Layers from the React console down to Docker, MySQL, Milvus, and MinIO" width="920">
 
-人物库上传和以脸搜图不走消息队列。Spring Boot 调用 `backend/algorithms/extract_cli.py`：先检出最大的一张脸，再提向量。
+<img src="docs/images/pipeline.png" alt="Video frames go through YOLOv8 and Facenet512, then RabbitMQ, into MinIO, Milvus, and the dashboard" width="920">
 
-### 设计上分开的四件事
+A capture process reads a camera or a video file. YOLOv8 `track` follows each face. When a face should be stored, DeepFace Facenet512 produces a 512-d vector and Pika publishes it to the RabbitMQ queue `face_recognition_queue`. Spring Boot writes the image to MinIO and the vector to Milvus. MySQL stores login accounts only. The browser calls REST on port `8080` with a Bearer JWT. Alerts use `/ws-alerts`.
 
-- **三个 ID。** `track_id` 只在一次视频里用来跨帧跟踪，不会发给后端。`face_id` 是一次抓拍。`people_id` 是跨镜头的同一个人，多条抓拍可以共用。
-- **四类抓拍时机。** 脸第一次进入画面推 `ENTER`；更正、置信度明显更高时推 `QUALITY`；同一张脸超过 60 秒再推 `STAYING`；离开画面推 `LEAVE`。
-- **三套阈值，互不替代。** `searchThreshold` 用于以脸搜图，`peopleMatchThreshold` 用于把抓拍归到已有人物，`alertMatchThreshold` 用于嫌疑人实时预警。轨迹页上的“嫌疑人”标记看的是人物库里的标记，和 WebSocket 实时预警不是同一个判断。
-- **先有图，再有向量。** MinIO 写入失败时不再写 Milvus，避免库里留下没有图片的向量。
+Uploads and photo search do not use the queue. Spring Boot runs `backend/algorithms/extract_cli.py`, which crops the largest face and returns an embedding.
 
-## 技术栈
+<img src="docs/images/data-model.png" alt="MySQL users, three Milvus collections, and the MinIO buckets that hold images and video" width="920">
 
-| 层 | 选择 |
+### Four boundaries in the design
+
+- **Three IDs.** `track_id` exists only inside one video so the tracker can follow a face across frames. It is never sent to Java. `face_id` is one capture. `people_id` is one person across captures.
+- **Four capture reasons.** `ENTER` on the first frame, `QUALITY` when a more frontal or more confident view appears, `STAYING` after 60 seconds, `LEAVE` when the track disappears.
+- **Three thresholds.** `searchThreshold` is for photo search. `peopleMatchThreshold` assigns a capture to an existing person. `alertMatchThreshold` fires a live suspect alert. A suspect badge on a trajectory reads the person-library flag. It is a different check from the WebSocket alert.
+- **Image first, then vector.** If the MinIO write fails, the vector is not inserted.
+
+<img src="docs/images/detection-webcam.jpg" alt="YOLOv8 face box on a live camera frame" width="420">
+
+## Stack
+
+| Layer | Choice |
 | --- | --- |
-| 检测和追踪 | Ultralytics YOLOv8，权重 `yolov8n-face.pt` |
-| 特征 | DeepFace Facenet512，512 维，余弦相似度 |
-| 抓拍进程 | Python 3.10+，OpenCV，经 Pika 发 RabbitMQ |
-| 业务 API | Java 17，Spring Boot 3.2，Spring Security，JWT |
-| 向量 | Milvus 2.3，集合 `face_embeddings` / `people_embeddings` / `alert_embeddings` |
-| 图片和回放 | MinIO，桶 `faces` / `people` / `videos` / `places` |
-| 账号 | MySQL 8，表 `sys_user` |
-| 管理端 | React 18，Vite 5，React Router |
+| Detection and tracking | Ultralytics YOLOv8, weight file `yolov8n-face.pt` |
+| Embedding | DeepFace Facenet512, 512 dimensions, cosine similarity |
+| Capture process | Python 3.10+, OpenCV, Pika to RabbitMQ |
+| API | Java 17, Spring Boot 3.2, Spring Security, JWT |
+| Vectors | Milvus 2.3 collections `face_embeddings`, `people_embeddings`, `alert_embeddings` |
+| Images and playback | MinIO buckets `faces`, `people`, `videos`, `places` |
+| Accounts | MySQL 8 table `sys_user` |
+| Console | React 18, Vite 5, React Router |
 
-## 环境
+## Requirements
 
 - Docker Desktop
 - JDK 17+
 - Node.js 18+
 - Python 3.10+
-- 仓库里已经带了 `yolov8n-face.pt` 和 Facenet / Facenet512 权重，放在 `backend/algorithms/models/`。没有专用人脸权重时，检测器会退回通用的 `yolov8n.pt`，那是物体检测模型，脸会检不准
 
-权重文件较大，是为了换一台机器时不必再下载模型。
+`yolov8n-face.pt` and the Facenet / Facenet512 weights are already in `backend/algorithms/models/`. If the face weight is missing, the detector falls back to generic `yolov8n.pt`, which is an object detector and will miss faces. The weight files are large so a new machine does not have to download them on first run.
 
-## 启动
+## Run
 
-四步，从底层到页面。下面的命令以 macOS / Linux 为例，在仓库根目录执行。Windows 的差异写在每一步后面。
+Run these from the repository root. The shell examples are macOS and Linux. The Windows difference is called out in the capture step.
 
-### 1. 中间件
+### 1. Middleware
 
 ```bash
 docker compose up -d
 ```
 
-旧版 Docker 用 `docker-compose up -d`。第一次会拉镜像。
+Older Docker uses `docker-compose up -d`. The first run pulls images.
 
-| 服务 | 地址 | 本地演示账号 |
+| Service | Address | Local demo account |
 | --- | --- | --- |
-| RabbitMQ 管理台 | http://localhost:15672 | `guest` / `guest` |
-| RabbitMQ 程序端口 | `localhost:5888` | 同上。映射成 5888 是为了避开 Windows 保留端口 |
-| MinIO 控制台 | http://localhost:30001 | `minioadmin` / `minioadmin` |
-| MinIO API | http://localhost:30000 | 同上 |
-| Milvus | `localhost:19530` | 无账号 |
-| Attu | http://localhost:5000 | Milvus 的查看界面 |
-| MySQL | `localhost:3306` | 库 `face_recognition`，用户 `face` / `face`，root 密码 `root` |
+| RabbitMQ console | http://localhost:15672 | `guest` / `guest` |
+| RabbitMQ client port | `localhost:5888` | Same account. Host port 5888 avoids a reserved Windows range |
+| MinIO console | http://localhost:30001 | `minioadmin` / `minioadmin` |
+| MinIO API | http://localhost:30000 | Same account |
+| Milvus | `localhost:19530` | No account |
+| Attu | http://localhost:5000 | Milvus browser |
+| MySQL | `localhost:3306` | Database `face_recognition`, user `face` / `face`, root password `root` |
 
-这些口令只适合本机演示。对外部署前要换成自己的密码，并更换 `application.yml` 里的 JWT secret。
+These passwords are for a local demo. Change them, and the JWT secret in `application.yml`, before any shared deployment.
 
-Milvus 的集合由应用启动时创建。旧库如果字段对不上，需要在 Milvus 里处理旧集合，应用不会自动迁移历史向量。
+Milvus collections are created on startup. An older collection with a different schema has to be rebuilt by hand. The app does not migrate old vectors.
 
-### 2. 管理端
+### 2. Console
 
 ```bash
 cd frontend
@@ -111,23 +114,23 @@ npm install
 npm run dev
 ```
 
-打开 http://localhost:5173 。前端把 API 写死在 `http://localhost:8080`，所以要等下一步的后端起来再登录。
+Open http://localhost:5173. The UI calls `http://localhost:8080`, so log in after the API is up.
 
 ### 3. Spring Boot
 
-用 IDE 打开**仓库根目录**，运行：
+Open the repository root in an IDE and run:
 
 `backend/springboot/src/main/java/com/face/recognition/FaceRecognitionApplication.java`
 
-Java 和 Python 都读仓库根目录的 `config/settings.json`。虚拟环境和 `extract_cli.py` 也从这里找。IDE 如果把工作目录设在 `backend/springboot`，启动时会向上找到仓库根目录。`mvn spring-boot:run` 同样把进程工作目录设到仓库根目录。
+Java and Python both read `config/settings.json` at the repository root. The virtualenv and `extract_cli.py` are resolved from that same root, including when an IDE starts with its working directory in `backend/springboot`. `mvn spring-boot:run` sets the process working directory to the repository root.
 
-看到 `Started FaceRecognitionApplication` 后，后端在 `8080`。库里没有 `admin` 时会自动创建 `admin` / `admin`。
+When the log shows `Started FaceRecognitionApplication`, the API is on port `8080`. If no `admin` user exists, one is created with password `admin`.
 
 ```bash
 mvn -f backend/springboot/pom.xml spring-boot:run
 ```
 
-### 4. 抓拍
+### 4. Capture
 
 ```bash
 python3 -m venv .venv
@@ -137,81 +140,80 @@ pip install -r backend/requirements.txt
 python backend/algorithms/demo.py --source 0 --location "Entrance"
 ```
 
-处理一段视频：
+A video file:
 
 ```bash
 python backend/algorithms/demo.py --source path/to/video.mp4 --location "Main Gate"
 ```
 
-Windows 激活虚拟环境用 `.\.venv\Scripts\Activate.ps1`。终端里出现 `YOLOv8 实时面部追踪与自动去重系统` 后，总览页会开始收到抓拍。
+On Windows, activate with `.\.venv\Scripts\Activate.ps1`. After the banner `YOLOv8 live face tracking` appears, captures show up on the overview page.
 
-常用参数：
-
-| 参数 | 作用 | 默认 |
+| Flag | Meaning | Default |
 | --- | --- | --- |
-| `--source` | 摄像头编号，或视频路径 | `0` |
-| `--location` | 写入抓拍元数据的地点 | `Unknown` |
-| `--conf` | 检测置信度 | `config/settings.json` 的 `captureConfidence`，文件缺失时 `0.65` |
-| `--model` | 检测权重 | `backend/algorithms/models/yolov8n-face.pt` |
-| `--no-display` | 不弹预览窗口 | 关闭 |
-| `--no-save-faces` | 不把人脸小图写到本地 `output/` | 关闭。关掉本地保存时仍会推送后端 |
+| `--source` | Camera index or video path | `0` |
+| `--location` | Location stored on the capture | `Unknown` |
+| `--conf` | Detection confidence | `captureConfidence` in `config/settings.json`, or `0.65` if that file is missing |
+| `--model` | Detector weights | `backend/algorithms/models/yolov8n-face.pt` |
+| `--no-display` | Hide the preview window | off |
+| `--no-save-faces` | Skip writing face crops under `output/` | off. The backend still receives the capture |
 
-有 NVIDIA GPU 时可以安装 CUDA 版 PyTorch，检测器会使用可见的 CUDA 设备。CPU 可以直接跑。
+With an NVIDIA GPU, install a CUDA build of PyTorch and the detector uses the visible CUDA device. CPU is enough to run.
 
-## 配置
+## Configuration
 
-仓库根目录的 [`config/settings.json`](config/settings.json)：
+[`config/settings.json`](config/settings.json) at the repository root:
 
-| 字段 | 现在的值 | 用在哪 |
+| Field | Value in the repo | Used for |
 | --- | --- | --- |
-| `captureConfidence` | `0.7` | Python 检测置信度 |
-| `searchThreshold` | `0.6` | 以脸搜图 |
-| `peopleMatchThreshold` | `0.6` | 抓拍归并到已有人物 |
-| `alertMatchThreshold` | `0.6` | 嫌疑人实时预警 |
+| `captureConfidence` | `0.7` | Python detection confidence |
+| `searchThreshold` | `0.6` | Photo search |
+| `peopleMatchThreshold` | `0.6` | Assign a capture to an existing person |
+| `alertMatchThreshold` | `0.6` | Live suspect alert |
 
-连接信息在 [`backend/springboot/src/main/resources/application.yml`](backend/springboot/src/main/resources/application.yml)。Java 在找不到 `config/settings.json` 时，默认阈值比这份文件更严：检索 `0.70`，人物归并 `0.80`，预警 `0.85`。
+Connection settings are in [`backend/springboot/src/main/resources/application.yml`](backend/springboot/src/main/resources/application.yml). If `config/settings.json` is missing, Java falls back to stricter defaults: search `0.70`, people match `0.80`, alert `0.85`.
 
-## 目录
+## Layout
 
 ```text
 face-recognition-system2/
 ├── backend/
-│   ├── algorithms/                 # 检测、追踪、特征、推送
-│   │   ├── demo.py                 # 摄像头 / 视频入口
+│   ├── algorithms/                 # detect, track, embed, publish
+│   │   ├── demo.py                 # camera or video entry
 │   │   ├── face_detection.py
-│   │   ├── feature_extraction.py   # DEEPFACE_HOME 指向 models/
-│   │   ├── extract_cli.py          # 供 Java 上传和搜图调用
-│   │   ├── backend_pusher.py       # RabbitMQ 生产者
-│   │   └── models/                 # yolov8n-face 和 DeepFace 权重
+│   │   ├── feature_extraction.py   # DEEPFACE_HOME points at models/
+│   │   ├── extract_cli.py          # called by Java for upload and search
+│   │   ├── backend_pusher.py       # RabbitMQ producer
+│   │   └── models/                 # yolov8n-face and DeepFace weights
 │   ├── requirements.txt
-│   └── springboot/                 # REST、入库、检索、预警、账号
+│   └── springboot/                 # REST, storage, search, alerts, accounts
 ├── frontend/                       # React + Vite
 ├── config/settings.json
-├── docker-compose.yml              # MySQL、Milvus、MinIO、RabbitMQ、Attu
-├── docs/PROJECT_TECHNICAL_SPEC_ZH.txt
+├── docker-compose.yml              # MySQL, Milvus, MinIO, RabbitMQ, Attu
+├── docs/TECHNICAL_SPEC.md
+├── docs/images/
 ├── CHANGELOG.md
 └── LICENSE
 ```
 
-抓拍模块的命令说明在 [backend/algorithms/README.md](backend/algorithms/README.md)。
+Capture flags are also listed in [backend/algorithms/README.md](backend/algorithms/README.md).
 
-## 测试
+## Tests
 
 ```bash
 cd backend/springboot
 mvn test
 ```
 
-现有测试覆盖 JWT、阈值回填和 MinIO 元数据解析，不连接 Milvus、MinIO 或 MySQL。
+The tests cover JWT, threshold fallback, and MinIO metadata flags. They do not connect to Milvus, MinIO, or MySQL.
 
-## 排错
+## Troubleshooting
 
-- **3306 被占用。** 本机如果另有 MySQL 服务，先停掉，让容器里的 MySQL 占用 3306。
-- **8080 被占用。** 停掉上一次的 Spring Boot 再启动。
-- **没有实时预警。** 人物要先标成嫌疑人；相似度要过 `alertMatchThreshold`；RabbitMQ 要通；Dashboard 要开着，WebSocket 状态应是 connected。轨迹上的嫌疑人标记和这条实时预警不是同一个条件。
-- **上传或搜图提不出特征。** 虚拟环境要建在仓库根目录的 `.venv`。Windows 用 `Scripts/python.exe`，macOS / Linux 用 `bin/python`，后端会按这个顺序找。
-- **Python 报没有 `pika`。** 重新执行 `pip install -r backend/requirements.txt`。
+- **Port 3306 is taken.** Stop any MySQL already installed on the machine so the container can bind 3306.
+- **Port 8080 is taken.** Stop the previous Spring Boot process.
+- **No live alert.** The person must be marked as a suspect, the score must pass `alertMatchThreshold`, RabbitMQ must be up, and the dashboard must stay open with the WebSocket connected. A suspect badge on a trajectory is a different check.
+- **Upload or search cannot embed a face.** Create `.venv` at the repository root. Windows is resolved as `Scripts/python.exe`. macOS and Linux are resolved as `bin/python`.
+- **Python reports `No module named pika`.** Run `pip install -r backend/requirements.txt` again.
 
-## 许可证
+## License
 
 [MIT](LICENSE)

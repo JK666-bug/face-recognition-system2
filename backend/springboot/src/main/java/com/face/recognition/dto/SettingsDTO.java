@@ -10,8 +10,8 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 @AllArgsConstructor
 public class SettingsDTO {
-    private float captureConfidence; // 人脸抓拍置信度
-    private float searchThreshold;   // 向量对比门槛
-    private float peopleMatchThreshold; // 人物底库匹配阈值（COS）
-    private float alertMatchThreshold;  // 嫌疑人预警阈值（COS）
+    private float captureConfidence; // detection confidence for a capture
+    private float searchThreshold;   // minimum cosine score for photo search
+    private float peopleMatchThreshold; // cosine threshold for the people library
+    private float alertMatchThreshold;  // cosine threshold for suspect alerts
 }

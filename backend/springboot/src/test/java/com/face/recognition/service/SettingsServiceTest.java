@@ -17,7 +17,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 /**
- * 阈值纠偏逻辑与加载（使用临时 user.dir，不写真实工程目录下的 config）。
+ * Threshold fallback and loading. Tests point user.dir at a temp directory.
  */
 @SpringJUnitConfig(classes = SettingsService.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)

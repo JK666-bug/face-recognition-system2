@@ -1,35 +1,35 @@
 # Changelog
 
-版本号沿用开发过程里的 version 5.0。更早的记录按当时的提交整理，只写已经进仓库的行为。
+Version numbers follow the version 5.0 line used during development. Older notes only describe behavior that landed in the repository.
 
 ## 5.0.0 — 2026-04-20
 
-第一次打 Release。这一版包含人物库、嫌疑人预警，以及不依赖外部服务的单元测试。
+First GitHub release. This version has the people library, suspect alerts, and unit tests that do not need outside services.
 
-- 人物库：上传建档、标记嫌疑人、合并重复人物、更换代表脸、删除
-- 实时预警：命中 `alert_embeddings` 后经 WebSocket 推到 Dashboard，预警会在页面上保留一段时间
-- 抓拍入库改为先写 MinIO、再写 Milvus；人物归并、检索、预警使用三套独立阈值
-- 单元测试覆盖 JWT、阈值回填、MinIO 元数据解析，`mvn test` 不需要连外部服务
-- 文档改成和当前代码一致的架构说明、启动步骤和目录
-- 以脸搜图和人物库上传会同时识别 Windows 的 `.venv/Scripts/python.exe` 和 macOS / Linux 的 `.venv/bin/python`
-- 依赖里补上抓拍进程实际要 import 的 `pika`
-- 不再跟踪 `node_modules`、Maven `target/`、运行日志和编辑器配置
+- People library: enroll from a photo, mark a suspect, merge duplicates, replace the representative face, delete
+- Live alerts: a hit on `alert_embeddings` is pushed to the dashboard over WebSocket and kept on the page for a while
+- A capture is written to MinIO before Milvus. Search, person match, and alert each have their own threshold
+- Unit tests cover JWT, threshold fallback, and MinIO metadata parsing. `mvn test` does not call outside services
+- README and technical note match the running system, including figures from the project report
+- Photo search and people-library upload accept both Windows `.venv/Scripts/python.exe` and macOS / Linux `.venv/bin/python`
+- `pika` is listed in the Python requirements because the capture process imports it
+- `node_modules`, Maven `target/`, runtime logs, and editor settings are no longer tracked
 
-## 4.x — 2026-04-18 至 2026-04-19
+## 4.x — 2026-04-18 to 2026-04-19
 
-- 4.2 调整预警
-- 4.1 补齐人物库和预警，并调整库结构
-- 4.0 加入预警和人物库，重做抓拍处理，以及 MinIO、Milvus 的划分
+- 4.2 adjusted alerts
+- 4.1 finished the people library and alerts, and adjusted the database layout
+- 4.0 added alerts and the people library, reworked capture handling, and split MinIO and Milvus responsibilities
 
 ## 3.0 — 2026-04-17
 
-- 调整数据库结构
+- Adjusted the database layout
 
 ## 2.0 — 2026-04-06
 
-- 收紧检测过程里的比对逻辑
+- Tightened comparison during detection
 
 ## 1.0 — 2026-03
 
-- 打通 YOLOv8 抓拍、Facenet 特征、RabbitMQ、Spring Boot、Milvus 和 MinIO
-- 管理端：总览、轨迹检索、数据集、权限、阈值设置
+- Connected YOLOv8 capture, Facenet embeddings, RabbitMQ, Spring Boot, Milvus, and MinIO
+- Console: overview, trajectory search, dataset, access control, and threshold settings

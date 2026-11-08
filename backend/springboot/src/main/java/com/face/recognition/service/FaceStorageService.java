@@ -60,7 +60,7 @@ public class FaceStorageService {
 
     @jakarta.annotation.PostConstruct
     public void init() {
-        // 1. 初始化 MinIO Bucket
+        // 1. Create MinIO buckets
         try {
             boolean found = minioClient.bucketExists(io.minio.BucketExistsArgs.builder().bucket(bucketName).build());
             if (!found) {
@@ -92,7 +92,7 @@ public class FaceStorageService {
             log.error("Failed to initialize MinIO Buckets: ", e);
         }
 
-        // 2. 初始化 Milvus Collection
+        // 2. Create Milvus collections
         initMilvusCollection();
     }
 
@@ -102,7 +102,7 @@ public class FaceStorageService {
         initPeopleOrAlertEmbeddingsCollection(alertCollectionName);
     }
 
-    /** face_embeddings：face_id(PK) + vector；people_id 仅存 MinIO faces 对象元数据 */
+    /** face_embeddings stores face_id (PK) and the vector. people_id lives only in MinIO metadata. */
     private void initFaceEmbeddingsCollection() {
         String collectionName = faceCollectionName;
         try {
@@ -161,8 +161,8 @@ public class FaceStorageService {
     }
 
     /**
-     * people_embeddings / alert_embeddings：仅 people_id(PK) + vector。
-     * 若集合已存在且为旧结构（含 face_id），需在 Milvus 中删除后由应用自动重建，或手动重建。
+     * people_embeddings and alert_embeddings store people_id (PK) and the vector.
+     * An existing collection with the old schema (including face_id) must be dropped so the app can recreate it.
      */
     private void initPeopleOrAlertEmbeddingsCollection(String collectionName) {
         try {
@@ -244,23 +244,23 @@ public class FaceStorageService {
     }
 
     /**
-     * 执行双库保存逻辑
+     * Write one message to MinIO and Milvus.
      * 
-     * @param message 从 MQ 接收到的原始数据
+     * @param message payload received from the queue
      */
     public void saveFaceData(FaceDataMessage message) {
-        // 根据消息类型分发处理
+        // Dispatch on message type
         if ("VIDEO".equalsIgnoreCase(message.getType())) {
             handleVideoData(message);
         } else {
-            // 默认为 FACE 类型或旧版本兼容
+            // Missing type is treated as FACE for older publishers
             handleFaceData(message);
         }
     }
 
     private void handleFaceData(FaceDataMessage message) {
         String faceId = UUID.randomUUID().toString();
-        log.info("开始处理 [人脸] 数据，分配 face_id: {}", faceId);
+        log.info("Handling face message, face_id: {}", faceId);
 
         List<Float> vector = toFloatVector(message.getVector());
         if (vector == null || vector.isEmpty()) {
@@ -269,7 +269,7 @@ public class FaceStorageService {
         }
         float alertMatchThreshold = settingsService.getAlertMatchThreshold();
         float peopleMatchThreshold = settingsService.getPeopleMatchThreshold();
-        // 底库认人、alert 预警共用 searchPeople()：同一套 COSINE + top1 分数判定；仅集合与阈值配置项不同
+        // People match and alert match share the cosine top-1 search. Only the collection and threshold differ.
         MatchResult alertMatch = searchPeople(alertCollectionName, vector, 1, alertMatchThreshold);
         MatchResult peopleMatch = searchPeople(peopleCollectionName, vector, 1, peopleMatchThreshold);
 
@@ -280,7 +280,7 @@ public class FaceStorageService {
             isNewPerson = true;
         }
 
-        // 1. 保存到对象数据库 (使用 MinIO)；失败则不再写 Milvus / people，避免孤儿向量
+        // 1. Write MinIO first. A failure skips Milvus and the people record so no orphan vector is stored.
         if (!saveToObjectDatabase(faceId, peopleId, message, alertMatch)) {
             log.warn("Skip Milvus and people upsert: MinIO did not persist face image [face_id: {}]", faceId);
             return;
@@ -298,10 +298,10 @@ public class FaceStorageService {
                     .build());
         }
 
-        // 2. 保存到向量数据库 (使用 Milvus)
+        // 2. Insert the vector into Milvus
         saveToVectorDatabase(faceCollectionName, faceId, peopleId, vector);
 
-        // 3. 维护人物底库
+        // 3. Update the people library
         upsertPeopleObject(peopleId, faceId, message, isNewPerson);
         if (isNewPerson) {
             savePeopleOrAlertEmbedding(peopleCollectionName, peopleId, vector);
@@ -316,10 +316,10 @@ public class FaceStorageService {
 
         try {
             log.info("Processing [VIDEO] data via MQ: {}", message.getVideo_id());
-            // Base64 解码视频文件
+            // Decode the Base64 video
             byte[] videoBytes = Base64.getDecoder().decode(message.getVideo_base64());
 
-            // 存入 MinIO 的视频桶
+            // Store it in the videos bucket
             minioClient.putObject(
                     PutObjectArgs.builder()
                             .bucket(videoBucketName)
@@ -334,14 +334,14 @@ public class FaceStorageService {
         }
     }
 
-    /** @return false 表示 MinIO 未成功写入人脸图，调用方应中止后续 Milvus/people 写入 */
+    /** @return false when the face image was not stored. The caller must skip Milvus and people writes. */
     private boolean saveToObjectDatabase(String faceId, String peopleId, FaceDataMessage message, MatchResult alertMatch) {
         try {
-            // Base64 解码回图片字节流
+            // Decode the Base64 image
             byte[] imageBytes = Base64.getDecoder().decode(message.getImage_base64());
             String fileName = faceId + ".jpg";
 
-            // 构造元数据 (封装拍摄信息)
+            // Metadata: location, time, and related ids
             java.util.Map<String, String> metadata = new java.util.HashMap<>();
             metadata.put("location", message.getLocation());
             metadata.put("timestamp", message.getTimestamp());
@@ -357,14 +357,14 @@ public class FaceStorageService {
             }
             metadata.put(MinioMetadataFlags.MANUAL_UPLOAD, "false");
 
-            // 存入 MinIO
+            // Upload to MinIO
             minioClient.putObject(
                     PutObjectArgs.builder()
                             .bucket(bucketName)
                             .object(fileName)
                             .stream(new ByteArrayInputStream(imageBytes), imageBytes.length, -1)
                             .contentType("image/jpeg")
-                            .userMetadata(metadata) // 重点：将数据作为元数据存入
+                            .userMetadata(metadata) // capture details are object metadata
                             .build());
 
             log.info("Image and metadata successfully saved to MinIO [face_id: {}, people_id: {}, Location: {}]", faceId,
@@ -383,7 +383,7 @@ public class FaceStorageService {
         if (location == null || location.isEmpty())
             return;
         try {
-            // 检查位置标记是否存在 (以地名为对象名，0字节内容)
+            // A place marker is an empty object named after the location
             try {
                 minioClient.statObject(
                         io.minio.StatObjectArgs.builder()
@@ -392,7 +392,7 @@ public class FaceStorageService {
                                 .build());
             } catch (io.minio.errors.ErrorResponseException e) {
                 if ("NoSuchKey".equals(e.errorResponse().code())) {
-                    // 不存在则创建
+                    // Create it when missing
                     minioClient.putObject(
                             PutObjectArgs.builder()
                                     .bucket(placesBucketName)
@@ -436,7 +436,7 @@ public class FaceStorageService {
         }
     }
 
-    /** people_embeddings / alert_embeddings：仅 people_id + vector */
+    /** people_embeddings and alert_embeddings store people_id and the vector */
     private void savePeopleOrAlertEmbedding(String collectionName, String peopleId, List<Float> floatVector) {
         if (floatVector == null || floatVector.isEmpty()) {
             return;
@@ -509,7 +509,7 @@ public class FaceStorageService {
                 } catch (Exception ignored) {
                 }
 
-                // 同一视频内只保留最高分代表图；跨视频仅在更高分时替换
+                // Inside one video, keep the highest score. Across videos, replace only when the new score is higher.
                 String currentVideoId = currentMeta.getOrDefault("representative_video_id", "");
                 double currentScore = parseDoubleOrDefault(currentMeta.get("representative_score"), 0.0);
                 boolean shouldReplace = incomingScore > currentScore;
@@ -562,7 +562,7 @@ public class FaceStorageService {
         }
     }
 
-    /** faces 桶对象元数据中的 people_id（Milvus face 集合不存该字段） */
+    /** people_id from faces-bucket metadata. The face collection does not store that field. */
     private String readPeopleIdFromFaceObject(String faceId) {
         if (faceId == null || faceId.isBlank()) {
             return null;
@@ -586,8 +586,8 @@ public class FaceStorageService {
     }
 
     /**
-     * 在「people_id + vector」类集合上做向量检索（{@code people_embeddings} 底库认人、{@code alert_embeddings} 预警）。
-     * 判定与人物底库实时对齐一致：Metric COSINE、取 topK 中最高分，若 {@code score >= threshold} 则命中（认人为已入库人物，预警为触发报警）。
+     * Vector search on a people_id collection: people_embeddings for identity, alert_embeddings for alerts.
+     * Cosine distance, highest score in topK. A score at or above the threshold is a hit.
      */
     private MatchResult searchPeople(String collectionName, List<Float> embedding, int topK, float threshold) {
         if (embedding == null || embedding.isEmpty()) {

@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const directoryInfo = 'd:/前后端开发/前端/vs code 代码/face-recognition-system/frontend/src';
+const directoryInfo = path.join(__dirname, 'src');
 
 const replacements = [
     { from: /color:\s*'#1e293b'/g, to: 'color: \'white\'' },

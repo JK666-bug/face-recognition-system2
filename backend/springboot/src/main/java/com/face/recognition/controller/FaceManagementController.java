@@ -132,7 +132,7 @@ public class FaceManagementController {
         }
     }
 
-    // --- 用户管理系统 (超级管理员专用) ---
+    // --- account administration (super admin) ---
 
     @GetMapping("/admin/users")
     public List<User> getAllUsers() {
@@ -145,7 +145,7 @@ public class FaceManagementController {
             return ResponseEntity.badRequest().body("Username already exists");
         }
         user.setPassword(passwordEncoder.encode(user.getPassword()));
-        user.setRole("ADMIN"); // 默认注册为普通管理员
+        user.setRole("ADMIN"); // new accounts are normal admins
         return ResponseEntity.ok(userRepository.save(user));
     }
 
@@ -160,7 +160,7 @@ public class FaceManagementController {
     @DeleteMapping("/admin/users/{id}")
     public ResponseEntity<?> deleteUser(@PathVariable Long id) {
         return userRepository.findById(id).map(user -> {
-            // 禁止删除任何超级管理员 (只能删除普通 ADMIN)
+            // Super admins cannot be deleted. Only ADMIN accounts can.
             if ("SUPER_ADMIN".equals(user.getRole())) {
                 return ResponseEntity.badRequest().body("Super Administrators cannot be deleted.");
             }

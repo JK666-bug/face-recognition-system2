@@ -12,7 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * JWT 签发与校验（不启动 Spring 容器，不连数据库）。
+ * Issue and check JWTs without starting Spring or a database.
  */
 class JwtServiceTest {
 
@@ -20,7 +20,7 @@ class JwtServiceTest {
 
     @BeforeEach
     void setUp() {
-        // HS256 需要足够长的密钥；此处为 Base64(任意长度>=32字节的密钥材料)
+        // HS256 needs a long secret. This is Base64 of at least 32 bytes of key material.
         ReflectionTestUtils.setField(
                 jwtService,
                 "secretKey",
@@ -51,7 +51,7 @@ class JwtServiceTest {
     void isTokenValid_expiredToken_throwsExpiredJwt() {
         ReflectionTestUtils.setField(jwtService, "jwtExpiration", -86_400_000L);
         String token = jwtService.generateToken("exp", "ADMIN");
-        // 当前实现先 parseClaims，过期会直接抛异常而非返回 false
+        // parseClaims throws on expiry instead of returning false.
         assertThrows(ExpiredJwtException.class, () -> jwtService.isTokenValid(token, "exp"));
     }
 

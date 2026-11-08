@@ -80,7 +80,7 @@ public class FaceManagementService {
                                        meta.getOrDefault("timestamp".toLowerCase(), 
                                        meta.getOrDefault("x-amz-meta-timestamp", item.lastModified().toString())));
 
-                    // 为列表视图获取小图缩略图
+                    // Thumbnail for the list view
                     String base64 = "";
                     try (InputStream stream = minioClient.getObject(
                             GetObjectArgs.builder().bucket(bucketName).object(objectName).build())) {
@@ -88,7 +88,7 @@ public class FaceManagementService {
                         base64 = Base64.getEncoder().encodeToString(bytes);
                     }
 
-                    // 获取关联视频 ID
+                    // Related video id
                     String videoId = meta.get("video_id");
                     if (videoId == null) videoId = meta.get("video-id");
                     if (videoId == null) videoId = meta.get("x-amz-meta-video_id");
@@ -135,7 +135,7 @@ public class FaceManagementService {
                 }
             }
             
-            // 排序：时间倒序
+            // Newest first
             records.sort((a, b) -> b.getTimestamp().compareTo(a.getTimestamp()));
 
         } catch (Exception e) {
@@ -255,7 +255,7 @@ public class FaceManagementService {
         return records;
     }
 
-    /** 仅展示抓拍维护的 last_time；未出现过抓拍则为空串（不用对象 lastModified 冒充）。 */
+    /** Show last_time maintained by captures. Empty when the person has never been captured. */
     private static String peopleLastTimeForDisplay(Map<String, String> meta) {
         if (meta == null) {
             return "";
@@ -298,7 +298,7 @@ public class FaceManagementService {
         peopleMetadata.put("face_id", faceId);
         peopleMetadata.put("representative_score", "1.0");
         peopleMetadata.put("representative_video_id", "MANUAL_CREATE");
-        // last_time 仅由抓拍/MQ 维护，人物库新建不写
+        // last_time is written only by captures. Creating a person does not set it.
         peopleMetadata.put("is_suspect", String.valueOf(suspect));
         peopleMetadata.put(MinioMetadataFlags.MANUAL_UPLOAD, "true");
         minioClient.putObject(PutObjectArgs.builder()
@@ -352,7 +352,7 @@ public class FaceManagementService {
                     .userMetadata(meta)
                     .build());
 
-            // 先删后插，保持嫌疑人库和标记一致
+            // Delete then insert so the suspect collection matches the flag.
             deleteByPeopleId(alertCollectionName, peopleId);
 
             if (suspect) {
@@ -368,11 +368,11 @@ public class FaceManagementService {
     }
 
     /**
-     * 合并 A→B（source=A 删掉，target=B 保留）：
+     * Merge A into B (delete source A, keep target B):
      * <ul>
-     *   <li>faces 桶：凡元数据 {@code people_id=A} 的对象改为 {@code people_id=B}（图不变，{@code face_embeddings} 不按 people 删）</li>
-     *   <li>people 桶：更新 B 的元数据后删 {@code A.jpg}</li>
-     *   <li>Milvus {@code people_embeddings} / {@code alert_embeddings}：删主键 {@code people_id=A}；B 在 people 中保留原行；alert 按合并后嫌疑人状态删插</li>
+     *   <li>faces bucket: objects whose metadata people_id is A are retagged to B. Image bytes stay, so face_embeddings is not rewritten.</li>
+     *   <li>people bucket: update B's metadata, then delete A.jpg</li>
+     *   <li>Milvus people_embeddings and alert_embeddings: delete primary key A. Keep B's people row. Rewrite the alert row to match the merged suspect flag.</li>
      * </ul>
      */
     public void mergePeople(String sourcePeopleId, String targetPeopleId) {
@@ -404,17 +404,17 @@ public class FaceManagementService {
 
             writeObject(peopleBucketName, targetObjectName, targetPeople.imageBytes, "image/jpeg", updatedTargetMeta);
 
-            // people_embeddings：B 的主图未变，B 上原有向量仍正确，只删 A；勿把 A 的向量当 B 用（与 B.jpg 不一致）
+            // B's representative image did not change, so B's vector stays. Delete A only. Do not reuse A's vector for B.
             deleteByPeopleId(peopleCollectionName, sourcePeopleId);
 
             deleteByPeopleId(alertCollectionName, sourcePeopleId);
             if (mergedSuspect) {
                 if (!targetPeople.suspect && sourcePeople.suspect) {
-                    // 合并后 B 新成为嫌疑人：B 原不在 alert，用 B 当前主图提特征（与 people 语义一致）
+                    // B becomes a suspect in this merge. Embed B's current representative image.
                     List<Float> alertEmb = faceSearchService.extractFeatureFromBytes(targetPeople.imageBytes, ".jpg");
                     insertEmbedding(alertCollectionName, null, targetPeopleId, alertEmb);
                 }
-                // B 本来就是嫌疑人：保留 B 在 alert 中的行即可，仅上面已删 A
+                // B was already a suspect. Keep B's alert row. A was deleted above.
             } else {
                 deleteByPeopleId(alertCollectionName, targetPeopleId);
             }
@@ -435,13 +435,13 @@ public class FaceManagementService {
     public void deletePerson(String peopleId) {
         String peopleObjectName = peopleId + ".jpg";
         try {
-            // 删除 people 桶对象
+            // Delete the people-bucket object
             minioClient.removeObject(RemoveObjectArgs.builder()
                     .bucket(peopleBucketName)
                     .object(peopleObjectName)
                     .build());
 
-            // 删除抓拍库中该人物所有图片
+            // Delete every capture image for this person
             Iterable<Result<Item>> results = minioClient.listObjects(
                     ListObjectsArgs.builder().bucket(bucketName).recursive(true).build());
             for (Result<Item> result : results) {
@@ -467,7 +467,7 @@ public class FaceManagementService {
                 }
             }
 
-            // 删除人物向量和嫌疑向量（people / alert 仅 people_id PK）；face 向量已在上面按 face_id 删除
+            // Delete people and alert vectors. Face vectors were already deleted by face_id.
             deleteByPeopleId(peopleCollectionName, peopleId);
             deleteByPeopleId(alertCollectionName, peopleId);
         } catch (Exception e) {
@@ -481,7 +481,7 @@ public class FaceManagementService {
         try {
             List<Float> embedding = faceSearchService.extractFeatureFromBytes(imageBytes, ".jpg");
 
-            // 写入一条新的 face 记录，保留可追溯性
+            // Write a new face record so the change stays traceable
             java.util.Map<String, String> faceMetadata = new java.util.HashMap<>();
             faceMetadata.put("location", "PEOPLE_LIBRARY_REPLACE");
             faceMetadata.put("timestamp", now);
@@ -495,16 +495,16 @@ public class FaceManagementService {
                     .userMetadata(faceMetadata)
                     .build());
 
-            // 更新 people 代表图和 metadata
+            // Update the representative image and metadata
             StatObjectResponse stat = minioClient.statObject(StatObjectArgs.builder()
                     .bucket(peopleBucketName)
                     .object(peopleId + ".jpg")
                     .build());
             Map<String, String> meta = new java.util.HashMap<>(stat.userMetadata());
             meta.put("face_id", faceId);
-            // 与 faces 桶换脸留痕一致：人物库操作，统计/过滤与 create 相同语义
+            // Same manual-upload flag as a people-library create, so stats and filters stay consistent
             meta.put(MinioMetadataFlags.MANUAL_UPLOAD, "true");
-            // last_time 仅由抓拍更新，换脸不改写
+            // last_time is updated only by captures, not by a photo replace
             meta.put("representative_score", "1.0");
             meta.put("representative_video_id", "MANUAL_REPLACE");
             minioClient.putObject(PutObjectArgs.builder()
@@ -515,9 +515,9 @@ public class FaceManagementService {
                     .userMetadata(meta)
                     .build());
 
-            // face 向量保留新增
+            // Insert the new face vector
             insertEmbedding(collectionName, faceId, peopleId, embedding);
-            // people / alert：仅 people_id + vector
+            // people and alert rows store only people_id and the vector
             deleteByPeopleId(peopleCollectionName, peopleId);
             insertEmbedding(peopleCollectionName, faceId, peopleId, embedding);
 
@@ -614,7 +614,7 @@ public class FaceManagementService {
             metadata.put("people_id", targetPeopleId);
             writeObject(bucketName, item.objectName(), imageBytes, "image/jpeg", metadata);
 
-            // face_embeddings 只有 face_id+vector，像素未变则向量不变，无需删插或重提特征
+            // face_embeddings stores face_id and the vector. Unchanged pixels keep the same vector.
             migrated.add(new FaceRecordData(faceId, imageBytes, metadata));
         }
 
@@ -646,7 +646,7 @@ public class FaceManagementService {
     }
 
     /**
-     * 告警状态以 people 桶中该人物的 is_suspect 为准，不读 faces 上的 alert_hit / alert_people_id。
+     * Alert state comes from is_suspect on the people object, not from alert fields on a face object.
      */
     private SuspectAlertState resolveSuspectAlertFromPeople(String peopleId) {
         if (peopleId == null || peopleId.isBlank()) {
@@ -689,7 +689,7 @@ public class FaceManagementService {
     }
 
     /**
-     * Milvus 2.3+ 删除主键需使用 {@code in} 形式，{@code face_id == "..."} 会报 invalid plan node type。
+     * Milvus 2.3+ deletes a primary key with an in expression. face_id == "..." raises invalid plan node type.
      */
     private void deleteByFaceId(String collection, String faceId) {
         if (faceId == null || faceId.isBlank()) {

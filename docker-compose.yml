@@ -1,25 +1,25 @@
 
 services:
   # ---------------------------------------------------------
-  # 1. RabbitMQ - 消息队列
+  # 1. RabbitMQ
   # ---------------------------------------------------------
   rabbitmq:
     image: rabbitmq:3-management
     container_name: rabbitmq
     ports:
-      - "5888:5672"   # 程序连接端口 (由 5678 修改为 5888，避开 Windows 排除范围)
-      - "15672:15672" # 管理界面端口 (guest/guest)
+      - "5888:5672"   # client port, moved to 5888 to avoid a reserved Windows range
+      - "15672:15672" # management console (guest/guest)
     restart: always
 
   # ---------------------------------------------------------
-  # 2. MinIO - 对象存储 (同时供业务和 Milvus 使用)
+  # 2. MinIO object storage, shared by the app and Milvus
   # ---------------------------------------------------------
   minio:
     image: minio/minio:RELEASE.2023-03-20T20-16-18Z
     container_name: minio
     ports:
-      - "30000:9000" # API 端口 (由 10000 修改为 30000)
-      - "30001:9001" # 控制台界面端口 (由 10001 修改为 30001)
+      - "30000:9000" # API port
+      - "30001:9001" # console port
     environment:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin
@@ -32,7 +32,7 @@ services:
     restart: always
 
   # ---------------------------------------------------------
-  # 3. Milvus - 向量数据库组件 (Etcd)
+  # 3. Milvus dependency: etcd
   # ---------------------------------------------------------
   etcd:
     container_name: milvus-etcd
@@ -44,7 +44,7 @@ services:
     restart: always
 
   # ---------------------------------------------------------
-  # 4. Milvus Standalone - 向量数据库
+  # 4. Milvus standalone
   # ---------------------------------------------------------
   standalone:
     container_name: milvus-standalone
@@ -54,14 +54,14 @@ services:
       ETCD_ENDPOINTS: etcd:2379
       MINIO_ADDRESS: minio:9000
     ports:
-      - "19530:19530" # Milvus API 端口
+      - "19530:19530" # Milvus API port
     depends_on:
       - "etcd"
       - "minio"
     restart: always
     
   # ---------------------------------------------------------
-  # 5. Attu - Milvus 可视化管理界面
+  # 5. Attu, the Milvus web console
   # ---------------------------------------------------------
   attu:
     container_name: milvus-attu
@@ -75,7 +75,7 @@ services:
     restart: always
 
   # ---------------------------------------------------------
-  # 6. MySQL - 业务数据库 (存储用户权限和其他元数据)
+  # 6. MySQL for accounts and other relational metadata
   # ---------------------------------------------------------
   mysql:
     image: mysql:8.0

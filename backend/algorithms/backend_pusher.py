@@ -1,6 +1,5 @@
 """
-后端推送模块 (RabbitMQ 生产者)
-负责将提取到的人脸数据异步发送给 SpringBoot 后端
+RabbitMQ producer. Publishes face crops and playback video to Spring Boot.
 """
 
 import pika
@@ -20,7 +19,7 @@ class BackendPusher:
         self.channel = None
         
     def _connect(self):
-        """建立连接"""
+        """Open a connection if one is not already open."""
         try:
             if self.connection is None or self.connection.is_closed:
                 self.connection = pika.BlockingConnection(pika.ConnectionParameters(host=self.host, port=self.port))
@@ -28,28 +27,26 @@ class BackendPusher:
                 self.channel.queue_declare(queue=self.queue_name, durable=True)
             return True
         except Exception as e:
-            print(f"❌  无法连接到消息队列 (RabbitMQ): {e}")
+            print(f"Cannot connect to RabbitMQ: {e}")
             return False
 
     def push_face_data(self, vector, face_img, location="Unknown", video_id=None, quality_score=None, capture_reason=None):
         """
-        推送人脸数据到 MQ
-        
+        Publish one face to the queue.
+
         Args:
-            vector: 512维特征向量
-            face_img: 人脸图像 (numpy ndarray)
-            location: 拍摄地点
-            video_id: 关联视频 ID
+            vector: 512-d embedding
+            face_img: face image as a numpy ndarray
+            location: capture location
+            video_id: related playback id
         """
         if not self._connect():
             return False
             
         try:
-            # 1. 图像转为 Base64
             _, buffer = cv2.imencode('.jpg', face_img)
             img_base64 = base64.b64encode(buffer).decode('utf-8')
             
-            # 2. 构造消息体
             payload = {
                 "type": "FACE",
                 "vector": vector,
@@ -61,30 +58,27 @@ class BackendPusher:
                 "capture_reason": capture_reason
             }
             
-            # 3. 发送消息
             self.channel.basic_publish(
                 exchange='',
                 routing_key=self.queue_name,
                 body=json.dumps(payload),
                 properties=pika.BasicProperties(
-                    delivery_mode=2,  # 消息持久化
+                    delivery_mode=2,  # persistent message
                 )
             )
-            print(f"✉️  数据已推送到 MQ: {self.queue_name} (地点: {location})")
+            print(f"Published to {self.queue_name} (location: {location})")
             return True
         except Exception as e:
-            print(f"❌  推送数据失败: {e}")
+            print(f"Failed to publish face data: {e}")
             return False
 
     def push_video_data(self, video_path, video_id):
-        """
-        将整个视频文件通过 MQ 发送
-        """
+        """Send a whole video file through the queue."""
         if not self._connect() or not os.path.exists(video_path):
             return False
             
         try:
-            print(f"📦 正在准备通过 MQ 传输视频文件 (Base64): {video_id}")
+            print(f"Preparing Base64 video for the queue: {video_id}")
             with open(video_path, "rb") as f:
                 video_base64 = base64.b64encode(f.read()).decode('utf-8')
             
@@ -100,16 +94,16 @@ class BackendPusher:
                 routing_key=self.queue_name,
                 body=json.dumps(payload)
             )
-            print(f"✅ 视频数据已推送至 MQ: {video_id} (大小: {len(video_base64)//1024} KB)")
+            print(f"Published video {video_id} ({len(video_base64)//1024} KB)")
             return True
         except Exception as e:
-            print(f"❌ 推送视频数据失败: {e}")
+            print(f"Failed to publish video: {e}")
             return False
 
     def close(self):
-        """关闭连接"""
+        """Close the connection."""
         if self.connection and self.connection.is_open:
             self.connection.close()
 
-# 单例模式，方便全局调用
+# Shared instance for the capture process.
 pusher = BackendPusher()

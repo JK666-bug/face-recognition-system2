@@ -24,16 +24,16 @@ public class FaceSearchController {
             @RequestParam(value = "topK", defaultValue = "50") Integer topK,
             @RequestParam(value = "startTime", required = false) String startTime,
             @RequestParam(value = "endTime", required = false) String endTime) {
-        log.info("收到人脸搜索请求，文件名: {}, TopK: {}, 时间范围: [{} - {}]", 
+        log.info("Face search request, file: {}, topK: {}, time range: [{} - {}]", 
                 file.getOriginalFilename(), 
                 topK,
-                startTime != null ? startTime : "不限", 
-                endTime != null ? endTime : "不限");
+                startTime != null ? startTime : "any", 
+                endTime != null ? endTime : "any");
         try {
             List<SearchMatchDTO> results = faceSearchService.searchByImage(file, topK, startTime, endTime);
             return ResponseEntity.ok(results);
         } catch (Exception e) {
-            log.error("人脸搜索失败: ", e);
+            log.error("Face search failed: ", e);
             return ResponseEntity.internalServerError().build();
         }
     }

@@ -15,7 +15,7 @@ public class FaceMQConsumer {
     private FaceStorageService storageService;
 
     /**
-     * 监听人脸数据队列
+     * Listen on the face-data queue.
      */
     @RabbitListener(queues = "face_recognition_queue")
     public void receiveMessage(FaceDataMessage message) {
@@ -30,14 +30,14 @@ public class FaceMQConsumer {
         }
 
         try {
-            // 调用业务逻辑进行双库保存
+            // Store the message in MinIO and Milvus.
             storageService.saveFaceData(message);
             log.info("Message processing completed: ID: {}",
                     ("VIDEO".equalsIgnoreCase(message.getType()) ? message.getVideo_id() : "FACE"));
         } catch (Exception e) {
             log.error("Error processing MQ message [ID: {}]: ",
                     ("VIDEO".equalsIgnoreCase(message.getType()) ? message.getVideo_id() : "FACE"), e);
-            // 这里可以增加死信队列处理逻辑
+            // A dead-letter queue could be added here.
         }
     }
 }

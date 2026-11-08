@@ -26,8 +26,8 @@ public class RabbitConfig {
         connectionFactory.setUsername(username);
         connectionFactory.setPassword(password);
 
-        // 设置底层 RabbitMQ Java Client 的最大消息体限制为 256MB
-        // 这个限制默认为 64MB，Base64 编码后的 22MB 视频由于体积增大可能触发此限制
+        // RabbitMQ Java client max body size: 256MB
+        // The default is 64MB. A 22MB video grows under Base64 and can exceed it.
         connectionFactory.getRabbitConnectionFactory().setMaxInboundMessageBodySize(256 * 1024 * 1024);
 
         return connectionFactory;
@@ -36,7 +36,7 @@ public class RabbitConfig {
     @Bean
     public org.springframework.amqp.support.converter.MessageConverter jsonMessageConverter() {
         com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        // 设置最大字符串长度为 100MB (Jackson 2.15+ 默认是 20MB，Base64 视频会超出)
+        // Max string length 100MB. Jackson 2.15+ defaults to 20MB, which Base64 video exceeds.
         mapper.getFactory().setStreamReadConstraints(
                 com.fasterxml.jackson.core.StreamReadConstraints.builder()
                         .maxStringLength(100 * 1024 * 1024)

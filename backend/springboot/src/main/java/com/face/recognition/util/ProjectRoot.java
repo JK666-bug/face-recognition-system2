@@ -5,7 +5,7 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 
 /**
- * 仓库根目录。IDE 经常把工作目录设在 backend/springboot，阈值文件和虚拟环境都在上两级。
+ * Repository root. IDEs often start in backend/springboot; settings and the virtualenv are two levels up.
  */
 public final class ProjectRoot {
 

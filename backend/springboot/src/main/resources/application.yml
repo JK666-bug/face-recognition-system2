@@ -7,7 +7,7 @@ spring:
       max-file-size: 50MB
       max-request-size: 50MB
   
-  # RabbitMQ 配置
+  # RabbitMQ
   rabbitmq:
     host: localhost
     port: 5888
@@ -18,10 +18,10 @@ spring:
         acknowledge-mode: auto
         concurrency: 1
         max-concurrency: 5
-        # 增加最大消息限制为 50MB (默认是比较小的)
+        # Allow messages up to 50MB. The default limit is much smaller.
         max-receive-size: 52428800
 
-  # MinIO 配置 (对象存储)
+  # MinIO object storage
   minio:
     endpoint: http://localhost:30000
     accessKey: minioadmin
@@ -30,7 +30,7 @@ spring:
     placesBucketName: places
     peopleBucketName: people
 
-  # Milvus 配置 (向量数据库)
+  # Milvus vector database
   milvus:
     host: localhost
     port: 19530

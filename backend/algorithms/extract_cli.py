@@ -1,6 +1,8 @@
 """
-特征提取命令行工具 - 供 Java 后端调用
-人物库 / 以脸搜图：先用 YOLOv8 人脸检测截最大脸，再 Facenet512 提向量；未检出则回退整图。
+Feature-extraction CLI used by the Java backend.
+
+People-library upload and photo search detect the largest face with YOLOv8,
+then embed it with Facenet512. If no face is found, the whole image is used.
 """
 
 import sys
@@ -8,10 +10,9 @@ import json
 import os
 from pathlib import Path
 
-# 设置环境
 os.environ["TF_USE_LEGACY_KERAS"] = "1"
 os.environ["PYTHONIOENCODING"] = "utf-8"
-# 确保 DeepFace 找到正确的模型路径
+# DeepFace looks for weights under DEEPFACE_HOME.
 models_dir = str(Path(__file__).resolve().parent / "models")
 os.environ["DEEPFACE_HOME"] = models_dir
 
@@ -30,8 +31,8 @@ def _ensure_algorithms_path():
 
 def resolve_embedding_source(image_path: str):
     """
-    使用 YOLOv8 检测后裁剪面积最大的人脸，供 DeepFace 提特征。
-    未检出或裁剪异常时返回原图路径字符串（与旧行为一致）。
+    Crop the largest YOLOv8 face for DeepFace.
+    Returns the original path when detection or the crop fails.
     """
     import cv2
 
@@ -70,7 +71,7 @@ def main():
         print(json.dumps({"error": f"Image path does not exist: {image_path}"}))
         sys.exit(1)
 
-    # 可选：python extract_cli.py <path> --no-detect  （调试 / 对比）
+    # Optional: python extract_cli.py <path> --no-detect
     use_detect = not (len(sys.argv) > 2 and sys.argv[2] == "--no-detect")
 
     try:

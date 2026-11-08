@@ -1,6 +1,6 @@
 """
-YOLOv8 人脸检测核心模块
-只使用 YOLOv8 进行精确的人脸识别
+YOLOv8 face detector.
+Detection uses YOLOv8 only.
 """
 
 import cv2
@@ -15,7 +15,7 @@ import time
 
 class FaceDetector:
     """
-    专门的 YOLOv8 人脸检测器
+    YOLOv8 face detector
     """
     
     def __init__(self, 
@@ -23,15 +23,15 @@ class FaceDetector:
                  confidence_threshold: float = 0.5,
                  device: Optional[str] = None):
         """
-        初始化检测器
+        Create the detector
         """
         self.confidence_threshold = confidence_threshold
         self.device = device
         
-        # 获取当前脚本的绝对路径，确保相对路径在此基础上计算
+        # Resolve paths from this file so relative paths stay stable
         self.base_dir = Path(__file__).resolve().parent
 
-        # 自动探测设备
+        # Pick CPU or CUDA when the caller did not
         if device is None:
             try:
                 import torch
@@ -44,43 +44,43 @@ class FaceDetector:
         if model_path is None:
             model_path = str(self.base_dir / "models" / "yolov8n-face.pt")
         
-        # 检查模型文件是否存在
+        # Fall back when the dedicated face weights are missing
         if not os.path.exists(model_path):
-            print(f"⚠️  警告: 未找到专用模型文件 {model_path}")
-            # 尝试在当前目录下找 yolov8n.pt 作为兜底
+            print(f"Warning: dedicated weights not found: {model_path}")
+            # Fall back to generic yolov8n.pt in the working directory
             model_path = "yolov8n.pt" 
-            print(f"🕒 暂时使用通用模型: {model_path}")
+            print(f"Using generic model for now: {model_path}")
         
-        print(f"载入模型: {model_path} (Device: {self.device})")
+        print(f"Loading model: {model_path} (Device: {self.device})")
         self.model = YOLO(model_path)
         
-        # 统一移动模型到指定设备
+        # Move the model onto the selected device
         if self.device != 'cpu':
              self.model.to('cuda' if self.device == '0' else self.device)
         
         self.is_face_model = 'face' in str(model_path).lower()
-        print(f"检测器已就绪。模式: {'专用人脸检测' if self.is_face_model else '通用物体检测'}")
+        print(f"Detector ready. Mode: {'face' if self.is_face_model else 'generic object'}")
 
     def detect_image(self, 
                       image_source: Union[str, np.ndarray],
                       save_result: bool = False,
                       output_path: Optional[str] = None) -> List[Dict]:
-        """检测图像中的人脸"""
+        """Detect faces in one image."""
         if isinstance(image_source, str):
             image = cv2.imread(image_source)
             if image is None:
-                raise ValueError(f"无法读取图片: {image_source}")
+                raise ValueError(f"Cannot read image: {image_source}")
         else:
             image = image_source
         
-        # 使用 YOLO 进行预测
+        # Run YOLO
         results = self.model.predict(
             source=image,
             conf=self.confidence_threshold,
             verbose=False
         )
         
-        # 解析结果
+        # Parse boxes
         faces = utils.parse_yolo_results(results, is_face_model=self.is_face_model)
         
         if save_result and len(faces) > 0:
@@ -102,13 +102,13 @@ class FaceDetector:
                      feature_extractor_callback: Optional[callable] = None,
                      video_id: Optional[str] = None) -> Dict:
         """
-        针对视频流的检测、追踪与去重
+        Detect, track, and publish faces from a video or camera
         """
-        # 轨迹追踪
+        # Track across frames
         results = self.model.track(
             source=source,
             conf=self.confidence_threshold,
-            device=self.device, # 使用检测到的设备 (CPU 或 GPU)
+            device=self.device,  # cpu or cuda
             stream=True,
             persist=True,  
             verbose=False
@@ -117,11 +117,11 @@ class FaceDetector:
         total_frames = 0
         video_writer = None
         
-        # 核心去重与推送逻辑 (首尾保时效, 过程保质量)
+        # Publish on enter, quality, stay, and leave
         capturing_candidates = {} # ID -> {last_captured_time, last_frame, last_bbox, last_seen, last_conf, best_quality_conf}
         known_faces_data = [] 
         
-        # 定义推送闭包
+        # Closure that crops a face and publishes it
         face_counter = [1]
         def push_face(tid, face_frame, face_bbox, conf, reason="TRACE"):
             best_face_img = utils.crop_face(face_frame, face_bbox)
@@ -138,7 +138,7 @@ class FaceDetector:
                 if save_paths:
                     save_path = save_paths[0]
 
-            # 与磁盘保存解耦：实时推 MQ / 提特征必须执行，否则后端无抓拍、无嫌疑人比对与报警
+            # Publishing does not depend on saving a file. The callback must run or the backend never sees the capture.
             if feature_extractor_callback:
                 path_for_cb = save_path if save_path else str(
                     images_dir / f"_stream_{current_video_id}_tid{tid}_{reason}_{face_counter[0]}.jpg"
@@ -151,18 +151,18 @@ class FaceDetector:
                     capture_reason=reason
                 )
                 known_faces_data.append({'id': tid, 'reason': reason})
-                print(f"📡 [{reason}] 抓拍推送! [ID: {tid}] (置信度: {conf:.2f}) (序列: {face_counter[0]})")
+                print(f"[{reason}] published track {tid} (confidence: {conf:.2f}) (seq: {face_counter[0]})")
                 face_counter[0] += 1
 
-        # 标准化输出目录：始终保存在 algorithms/output/images (如用户要求)
+        # Face crops always go under algorithms/output/images
         images_dir = self.base_dir / "output" / "images"
         if save_unique_faces:
             images_dir.mkdir(parents=True, exist_ok=True)
             
-        # 获取当前视频的全局编号
+        # Next video number from files already in that directory
         current_video_id = utils.get_next_video_id(images_dir)
 
-        print(f"🎥 正从 {source} 开始检测与追踪... (新逻辑: 实时+周期+收尾)")
+        print(f"Detecting and tracking from {source} (enter, quality, stay, leave)")
         
         window_name = 'Face Tracking & Deduplication (Unified Demo)'
         if display:
@@ -175,33 +175,33 @@ class FaceDetector:
                     frame = result.orig_img
                     boxes = result.boxes
                     
-                    # 定义这一帧看到的 ID 集合，用于后续判断哪些 ID 消失了
+                    # Ids visible in this frame, so missing tracks can be closed
                     current_frame_ids = set()
                     current_frame_faces = []
                     
-                    # 如果检测并追踪到了物体
+                    # Boxes with tracker ids
                     if boxes is not None and boxes.id is not None:
                         ids = boxes.id.int().cpu().tolist()
                         coords = boxes.xyxy.int().cpu().tolist()
                         confs = boxes.conf.cpu().tolist()
-                        # 提取关键点 (Landmarks) 用于计算偏转角
+                        # Keypoints used for the yaw score
                         kpts = result.keypoints.xy.cpu().numpy() if result.keypoints is not None else []
                         
                         current_time = time.time()
                         for i, track_id in enumerate(ids):
                             bbox = coords[i]
                             conf = confs[i]
-                            # 计算偏离角得分 (Yaw Score)
+                            # Yaw score
                             face_kpt = kpts[i] if len(kpts) > i else None
                             yaw_score = utils.calculate_face_orientation(face_kpt)
-                            is_good_frontal = yaw_score < 0.20 # 判定为高质量正脸 (约 30 度以内)
+                            is_good_frontal = yaw_score < 0.20  # roughly within 30 degrees of frontal
                             
-                            # 记录当前帧看到的所有 ID
+                            # Remember every id in this frame
                             current_frame_ids.add(track_id)
                             
-                            # --- 逻辑引擎 ---
+                            # --- capture rules ---
                             if track_id not in capturing_candidates:
-                                # 🆕 1. 进场时效抓拍 (ENTER): 见人就抓
+                                # 1. ENTER: publish the first time this track is seen
                                 capturing_candidates[track_id] = {
                                     'last_captured_time': current_time,
                                     'last_frame': frame.copy(),
@@ -219,21 +219,21 @@ class FaceDetector:
                                 cand['last_bbox'] = bbox
                                 cand['last_conf'] = conf
                                 
-                                # 🆒 2. 最优质量抓拍 (QUALITY): 在满足偏转角度之下寻找分数最高的
+                                # 2. QUALITY: a frontal face, or one at least 0.10 more confident than the last quality capture
                                 if is_good_frontal:
-                                    # 如果这是追踪过程中第一次发现正脸， 或者当前分数比上次推的 QUALITY 高出 0.10 以上
+                                    # First frontal view of this track, or confidence at least 0.10 above the last QUALITY push
                                     if not cand['has_pushed_quality'] or conf >= (cand['best_quality_conf'] + 0.10):
                                         push_face(track_id, frame, bbox, conf, "QUALITY")
                                         cand['has_pushed_quality'] = True
                                         cand['best_quality_conf'] = conf
                                         cand['last_captured_time'] = current_time 
                                         
-                                # 🕔 3. 周期性存证 (STAYING): 路径维持 (每分钟)
+                                # 3. STAYING: publish again after 60 seconds
                                 if current_time - cand['last_captured_time'] >= 60:
                                     push_face(track_id, frame, bbox, conf, "STAYING")
                                     cand['last_captured_time'] = current_time
     
-                            # 填充当前帧的人脸信息用于展示
+                            # Boxes drawn on this frame
                             current_frame_faces.append({
                                 'bbox': bbox,
                                 'id': track_id,
@@ -241,42 +241,42 @@ class FaceDetector:
                                 'conf': conf
                             })
     
-                    # --- 逻辑 C: 消失瞬间收网抓拍 ---
-                    # 遍历候选区，如果某个 ID 已经很久没看到了，我们就认为他的轨迹结束了，抓拍最后一帧
+                    # --- leave ---
+                    # A track missing for long enough is closed on its last frame
                     track_ids_to_remove = []
                     for tid, cand in capturing_candidates.items():
-                        # 如果该 ID 不在当前帧里，且已经消失超过了 30 帧 (约 1.2 秒)
+                        # Missing from this frame and gone for more than 30 frames (about 1.2 seconds)
                         if tid not in current_frame_ids and (total_frames - cand['last_seen']) > 30:
                             track_ids_to_remove.append(tid)
     
                     for tid in track_ids_to_remove:
                         cand = capturing_candidates[tid]
-                        # 🏁 4. 离场时效抓拍 (LEAVE): 用离开瞬间的画面收尾
+                        # 4. LEAVE: publish the last frame of the track
                         push_face(tid, cand['last_frame'], cand['last_bbox'], cand['last_conf'], "LEAVE")
                         del capturing_candidates[tid]
                     
-                    # --- 可视化 (绘制结果) ---
+                    # --- draw ---
                     annotated_frame = frame.copy()
                     for face in current_frame_faces:
                         x1, y1, x2, y2 = face['bbox']
-                        # 统一使用蓝色框表示正在追踪
+                        # Blue box while the track is live
                         color = (255, 100, 0)
                         cv2.rectangle(annotated_frame, (x1, y1), (x2, y2), color, 2)
                         label = f"ID:{face['id']} {face['conf']:.2f}"
                         cv2.putText(annotated_frame, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 1)
                     
-                    # 显示
+                    # Show the window
                     if display:
-                        # 如果帧分辨率特别大 (比如 4K)，适当调整窗口显示
+                        # WINDOW_NORMAL lets a large frame fit the screen
                         cv2.imshow(window_name, annotated_frame)
                         if cv2.waitKey(1) & 0xFF == ord('q'):
                             break
                     
-                    # 保存视频帧
+                    # Write the annotated frame
                     if save_result:
                         if video_writer is None:
                             if output_path is None:
-                                # 同步文件名: video_N.mp4
+                                # Filename: video_N.mp4
                                 output_path = str(self.base_dir / "output" / "video" / f"video_{current_video_id}.mp4")
                             Path(output_path).parent.mkdir(parents=True, exist_ok=True)
                             fourcc = cv2.VideoWriter_fourcc(*'mp4v')
@@ -285,12 +285,12 @@ class FaceDetector:
                         video_writer.write(annotated_frame)
                         
                     if total_frames % 50 == 0:
-                        print(f"处理中: 第 {total_frames} 帧 | 已捕获独特人脸: {len(known_faces_data)}")
+                        print(f"Frame {total_frames} | captures published: {len(known_faces_data)}")
             
             except KeyboardInterrupt:
-                print("\n⏹️ 检测到强制中断 (Ctrl+C)，正在安全停止并保存视频...")
+                print("\nInterrupted. Stopping and saving the video...")
 
-            # --- 最终清理 ---
+            # --- flush tracks still open ---
             for track_id, cand in capturing_candidates.items():
                 push_face(track_id, cand['last_frame'], cand['last_bbox'], cand['last_conf'], "LEAVE")
             capturing_candidates.clear()
@@ -300,7 +300,7 @@ class FaceDetector:
                 cv2.destroyAllWindows()
             if video_writer:
                 video_writer.release()
-                print(f"✅ 处理后的视频已保存: {output_path}")
+                print(f"Annotated video saved: {output_path}")
                 
         return {
             'total_frames': total_frames,

@@ -169,7 +169,7 @@ const Settings = () => {
                         </div>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>People Match Threshold (COS)</h3>
-                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>用于判断是否已被人物底库记录（people_embeddings）。</p>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>Decides whether a face already matches someone in the people library (people_embeddings).</p>
                         </div>
                     </div>
 
@@ -212,7 +212,7 @@ const Settings = () => {
                         </div>
                         <div>
                             <h3 style={{ fontSize: '18px', fontWeight: '600' }}>Alert Threshold (COS)</h3>
-                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>用于嫌疑人预警匹配（alert_embeddings）。</p>
+                            <p style={{ fontSize: '14px', color: '#94a3b8' }}>Used for suspect alert matching (alert_embeddings).</p>
                         </div>
                     </div>
 

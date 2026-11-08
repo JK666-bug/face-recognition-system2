@@ -1,4 +1,4 @@
-# 忽略 Python 缓存
+# Python cache
 __pycache__/
 *.py[cod]
 *$py.class
@@ -7,23 +7,23 @@ __pycache__/
 
 
 
-# 忽略输出文件
+# Generated output
 output/
 runs/
 
-# 忽略临时文件
+# Temporary files
 *.tmp
 *.log
 
-# 忽略 IDE 配置
+# IDE settings
 .vscode/
 .idea/
 *.swp
 *.swo
 
-# 忽略系统文件
+# OS files
 .DS_Store
 Thumbs.db
 
-# 忽略媒体文件
+# Local media used for demos
 media/

@@ -19,6 +19,6 @@ public class CaptureRecordDTO {
     private String videoUrl;
     private boolean alertHit;
     private String alertPeopleId;
-    /** true：人物库换脸/新建写入 faces 桶的手动记录；false：MQ/抓拍链路 */
+    /** true: a people-library upload written into the faces bucket; false: a queue capture */
     private boolean manualUpload;
 }
