@@ -26,21 +26,24 @@ The console is a single dashboard. `admin` / `admin` is created on first boot as
 | Access Control | Super admin | Register admins, promote a super admin, delete a normal admin |
 | Settings | Super admin | Capture confidence and the three match thresholds |
 
-<p>
-  <img src="docs/images/dashboard.jpg" alt="Analytics overview with live suspect alerts" width="32%">
-  <img src="docs/images/detection-task.png" alt="Detection Task page for a webcam or an RTSP stream" width="32%">
-  <img src="docs/images/trajectory-search.jpg" alt="Trajectory search results for an uploaded face" width="32%">
-</p>
-
-<p>
-  <img src="docs/images/people-library.jpg" alt="People library with suspect flags and merge actions" width="32%">
-  <img src="docs/images/dataset.jpg" alt="Dataset explorer of captures and uploaded faces" width="32%">
-  <img src="docs/images/settings.jpg" alt="Threshold settings for capture, search, people match, and alerts" width="32%">
-</p>
-
-<p>
-  <img src="docs/images/login.jpg" alt="FaceGuard AI login screen" width="32%">
-</p>
+<table>
+  <tr>
+    <td width="50%"><img src="docs/images/dashboard.jpg" alt="Analytics overview with live suspect alerts"></td>
+    <td width="50%"><img src="docs/images/detection-task.png" alt="Detection Task page for a webcam or an RTSP stream"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/trajectory-search.jpg" alt="Trajectory search results for an uploaded face"></td>
+    <td width="50%"><img src="docs/images/people-library.jpg" alt="People library with suspect flags and merge actions"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/dataset.jpg" alt="Dataset explorer of captures and uploaded faces"></td>
+    <td width="50%"><img src="docs/images/settings.jpg" alt="Threshold settings for capture, search, people match, and alerts"></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/images/login.jpg" alt="FaceGuard AI login screen"></td>
+    <td width="50%"><img src="docs/images/detection-webcam.jpg" alt="YOLOv8 face box on a live camera frame"></td>
+  </tr>
+</table>
 
 ## Architecture
 
