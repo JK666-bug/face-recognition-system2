@@ -6,7 +6,7 @@ This note describes what the current code does: how the processes talk, how a ca
 
 ## What the system does
 
-A camera or video file is tracked with YOLOv8 (`track`, `persist=True`). A face chosen for storage is cropped and embedded with DeepFace Facenet512 (512 dimensions). RabbitMQ carries the image, the vector, and metadata to Spring Boot. Java writes MinIO and Milvus. People are tied together by `people_id`. A suspect also has one representative vector in `alert_embeddings`. A score at or above `alertMatchThreshold` is broadcast on a WebSocket to the dashboard. The console is React. After login, everything lives in dashboard tabs.
+A camera, a video file, or an RTSP/HTTP URL is tracked with YOLOv8 (`track`, `persist=True`). A face chosen for storage is cropped and embedded with DeepFace Facenet512 (512 dimensions). RabbitMQ carries the image, the vector, and metadata to Spring Boot. Java writes MinIO and Milvus. People are tied together by `people_id`. A suspect also has one representative vector in `alert_embeddings`. A score at or above `alertMatchThreshold` is broadcast on a WebSocket to the dashboard. The console is React. After login, everything lives in dashboard tabs.
 
 Three IDs are easy to mix up:
 
@@ -21,6 +21,16 @@ Three IDs are easy to mix up:
 Java uses the S3-compatible API for MinIO, the official Java SDK for Milvus on port 19530, and MySQL for users. The Vite app calls REST on port 8080 with `Authorization: Bearer`. Live alerts are a WebSocket at `/ws-alerts`. The JSON type is `SUSPECT_ALERT` and includes `faceId`, `peopleId`, `alertPeopleId`, location, time, and an image as Base64.
 
 Ports: RabbitMQ client `5888` (container `5672`), management `15672`; MinIO API `30000`, console `30001`; Milvus `19530`; MySQL `3306`; Spring Boot `8080`; Vite `5173`.
+
+## Detection tasks and streams
+
+The Detection Task tab calls `/api/detection`. `DetectionTaskService` keeps one in-memory task per running `demo.py`. A webcam task passes `--source 0`. A stream task passes the RTSP or HTTP URL as `--source`. OpenCV opens that URL. The service also passes `--location`, `--no-display` when the preview box is unchecked, and a distinct `--output` under `backend/algorithms/output/video/` so concurrent tasks do not share one mp4.
+
+Each task is a separate process, so several streams can run together. Logs are the process stdout, capped at 500 lines. Stop destroys the process. Delete removes an idle task from the list. Restarting Spring Boot drops the list. Stored faces and videos remain.
+
+This service does not push video. Something else must already be publishing the URL. In the project demo that publisher was FFmpeg writing a local file into MediaMTX, and the URL entered in the page was the RTSP address MediaMTX served. MediaMTX is not part of this repository.
+
+The Python interpreter is the repository `.venv` on Windows, macOS, or Linux, resolved by `ProjectRoot`. The same tracker rules apply to a stream as to a file: one `track` state per process, `ENTER` / `QUALITY` / `STAYING` / `LEAVE`, then RabbitMQ.
 
 ## When a face is published
 
@@ -89,7 +99,7 @@ Photo search queries `face_embeddings` with `searchThreshold`, not `peopleMatchT
 
 ## Console
 
-Login returns a JWT. Analytics Overview loads stats, recent captures, and the WebSocket. Trajectory Search uploads an image. People Library, for a super admin, manages people, suspect flags, merge, delete, and photo replace. Dataset manages capture records and bulk delete. Access Control registers admins. Settings edits thresholds. Routes are `/login` and `/dashboard`. The other screens are tabs inside the dashboard.
+Login returns a JWT. Analytics Overview loads stats, recent captures, and the WebSocket. Detection Task starts and stops webcam and stream processes. Trajectory Search uploads an image. People Library, for a super admin, manages people, suspect flags, merge, delete, and photo replace. Dataset manages capture records and bulk delete. Access Control registers admins. Settings edits thresholds. Routes are `/login` and `/dashboard`. The other screens are tabs inside the dashboard.
 
 ## If an alert does not appear
 

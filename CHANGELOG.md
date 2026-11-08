@@ -2,6 +2,16 @@
 
 Version numbers follow the version 5.0 line used during development. Older notes only describe behavior that landed in the repository.
 
+## 5.1.0 — 2026-11-08
+
+Detection Task is on `main`. The console can start a webcam or pull an RTSP/HTTP URL, including several streams at once.
+
+- Sidebar entry Detection Task, for every admin
+- `POST /api/detection/tasks/webcam/start` and `POST /api/detection/tasks/stream/start` each launch `demo.py`
+- Each task writes its own annotated video, so two streams do not overwrite the same file
+- The page lists, stops, and deletes tasks and shows the process log
+- An outside publisher supplies the stream. The project demo used FFmpeg and MediaMTX. This repository only consumes the URL
+
 ## 5.0.0 — 2026-04-20
 
 First GitHub release. This version has the people library, suspect alerts, and unit tests that do not need outside services.

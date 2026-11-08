@@ -1,6 +1,6 @@
 # Face Recognition System
 
-Detect faces in a camera or video, group the same person across shots, search a trajectory by photo, and raise a live alert when a marked suspect appears.
+Detect faces from a camera, a video file, or an RTSP/HTTP stream, group the same person across shots, search a trajectory by photo, and raise a live alert when a marked suspect appears.
 
 Python watches the video. Java stores and searches. React is the admin console. Each capture becomes one face image plus a 512-dimensional vector, then joins a person record. A later match against the suspect set is pushed to the dashboard over WebSocket.
 
@@ -10,15 +10,16 @@ Python watches the video. Java stores and searches. React is the admin console. 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-yellow)](backend/requirements.txt)
 [![React 18](https://img.shields.io/badge/React-18-61dafb)](frontend/package.json)
 
-Current release: [v5.0.0](https://github.com/JK666-bug/face-recognition-system2/releases/tag/v5.0.0). History is in [CHANGELOG](CHANGELOG.md). How IDs, thresholds, and storage fit together is in the [technical note](docs/TECHNICAL_SPEC.md).
+Current release: [v5.1.0](https://github.com/JK666-bug/face-recognition-system2/releases/tag/v5.1.0). History is in [CHANGELOG](CHANGELOG.md). How IDs, thresholds, and storage fit together is in the [technical note](docs/TECHNICAL_SPEC.md).
 
 ## Interface
 
-The console is a single dashboard. `admin` / `admin` is created on first boot as `SUPER_ADMIN`. Accounts created under Access Control are `ADMIN` and can open only Analytics Overview and Trajectory Search.
+The console is a single dashboard. `admin` / `admin` is created on first boot as `SUPER_ADMIN`. Accounts created under Access Control are `ADMIN`. They can open Analytics Overview, Detection Task, and Trajectory Search.
 
 | Tab | Who | What it does |
 | --- | --- | --- |
 | Analytics Overview | Every admin | Captures, face and person counts, Milvus / MinIO / RabbitMQ health, live suspect alerts |
+| Detection Task | Every admin | Start a webcam or an RTSP/HTTP URL. Several tasks can run at the same time |
 | Trajectory Search | Every admin | Upload a face, filter by similarity and time, play the linked video |
 | People Library | Super admin | Enroll a person, mark a suspect, merge duplicates, replace the photo, delete |
 | Dataset | Super admin | Browse and delete capture records |
@@ -27,13 +28,17 @@ The console is a single dashboard. `admin` / `admin` is created on first boot as
 
 <p>
   <img src="docs/images/dashboard.jpg" alt="Analytics overview with live suspect alerts" width="32%">
+  <img src="docs/images/detection-task.png" alt="Detection Task page for a webcam or an RTSP stream" width="32%">
   <img src="docs/images/trajectory-search.jpg" alt="Trajectory search results for an uploaded face" width="32%">
-  <img src="docs/images/people-library.jpg" alt="People library with suspect flags and merge actions" width="32%">
 </p>
 
 <p>
+  <img src="docs/images/people-library.jpg" alt="People library with suspect flags and merge actions" width="32%">
   <img src="docs/images/dataset.jpg" alt="Dataset explorer of captures and uploaded faces" width="32%">
   <img src="docs/images/settings.jpg" alt="Threshold settings for capture, search, people match, and alerts" width="32%">
+</p>
+
+<p>
   <img src="docs/images/login.jpg" alt="FaceGuard AI login screen" width="32%">
 </p>
 
@@ -43,7 +48,7 @@ The console is a single dashboard. `admin` / `admin` is created on first boot as
 
 <img src="docs/images/pipeline.png" alt="Video frames go through YOLOv8 and Facenet512, then RabbitMQ, into MinIO, Milvus, and the dashboard" width="920">
 
-A capture process reads a camera or a video file. YOLOv8 `track` follows each face. When a face should be stored, DeepFace Facenet512 produces a 512-d vector and Pika publishes it to the RabbitMQ queue `face_recognition_queue`. Spring Boot writes the image to MinIO and the vector to Milvus. MySQL stores login accounts only. The browser calls REST on port `8080` with a Bearer JWT. Alerts use `/ws-alerts`.
+A capture process reads a camera, a video file, or an RTSP/HTTP URL. YOLOv8 `track` follows each face. When a face should be stored, DeepFace Facenet512 produces a 512-d vector and Pika publishes it to the RabbitMQ queue `face_recognition_queue`. Spring Boot writes the image to MinIO and the vector to Milvus. MySQL stores login accounts only. The browser calls REST on port `8080` with a Bearer JWT. Alerts use `/ws-alerts`.
 
 Uploads and photo search do not use the queue. Spring Boot runs `backend/algorithms/extract_cli.py`, which crops the largest face and returns an embedding.
 
@@ -146,11 +151,19 @@ A video file:
 python backend/algorithms/demo.py --source path/to/video.mp4 --location "Main Gate"
 ```
 
-On Windows, activate with `.\.venv\Scripts\Activate.ps1`. After the banner `YOLOv8 live face tracking` appears, captures show up on the overview page.
+An RTSP or HTTP URL uses the same flag. The Detection Task page does this for you: it starts one `demo.py` process per webcam or stream, and more than one can run together.
+
+```bash
+python backend/algorithms/demo.py --source "rtsp://127.0.0.1:8554/live" --location "Main Gate" --no-display
+```
+
+This repository does not publish the stream. An outside system does. In the project demo, FFmpeg pushed a local video into MediaMTX, and the console then opened the RTSP URL MediaMTX exposed. That is the stand-in for an enterprise system handing over a live stream.
+
+On Windows, activate with `.\.venv\Scripts\Activate.ps1`. After the banner `YOLOv8 live face tracking` appears, captures show up on the overview page. Stopping a task from the page stops that Python process. Restarting Spring Boot clears the task list. The captures already stored in MinIO and Milvus stay.
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--source` | Camera index or video path | `0` |
+| `--source` | Camera index, video path, or RTSP/HTTP URL | `0` |
 | `--location` | Location stored on the capture | `Unknown` |
 | `--conf` | Detection confidence | `captureConfidence` in `config/settings.json`, or `0.65` if that file is missing |
 | `--model` | Detector weights | `backend/algorithms/models/yolov8n-face.pt` |
@@ -178,14 +191,14 @@ Connection settings are in [`backend/springboot/src/main/resources/application.y
 face-recognition-system2/
 ├── backend/
 │   ├── algorithms/                 # detect, track, embed, publish
-│   │   ├── demo.py                 # camera or video entry
+│   │   ├── demo.py                 # camera, file, or stream URL
 │   │   ├── face_detection.py
 │   │   ├── feature_extraction.py   # DEEPFACE_HOME points at models/
 │   │   ├── extract_cli.py          # called by Java for upload and search
 │   │   ├── backend_pusher.py       # RabbitMQ producer
 │   │   └── models/                 # yolov8n-face and DeepFace weights
 │   ├── requirements.txt
-│   └── springboot/                 # REST, storage, search, alerts, accounts
+│   └── springboot/                 # REST, detection tasks, storage, search, alerts
 ├── frontend/                       # React + Vite
 ├── config/settings.json
 ├── docker-compose.yml              # MySQL, Milvus, MinIO, RabbitMQ, Attu

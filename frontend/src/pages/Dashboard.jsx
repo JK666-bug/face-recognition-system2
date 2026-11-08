@@ -11,13 +11,15 @@ import {
     Shield,
     Activity,
     MapPin,
-    User as UserIcon
+    User as UserIcon,
+    Camera
 } from 'lucide-react';
 import Search from './Search';
 import SettingsPage from './Settings';
 import HistoryManager from './HistoryManager';
 import AccessControl from './AccessControl';
 import PeopleLibrary from './PeopleLibrary';
+import DetectionTask from './DetectionTask';
 
 // A short window clears a new alert before anyone can read it, so the page stays on "No live suspect alerts yet."
 const ALERT_RETENTION_MS = 6 * 60 * 60 * 1000; // Keep alerts in the list and localStorage for 6 hours.
@@ -348,9 +350,14 @@ const Dashboard = () => {
                     const alert = JSON.parse(event.data);
                     if (alert.type === 'SUSPECT_ALERT') {
                         const stampedAlert = { ...alert, receivedAt: Date.now() };
-                        setLiveAlerts((prev) => [stampedAlert, ...prev]
-                            .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
-                            .slice(0, 20));
+                        setLiveAlerts((prev) => {
+                            if (stampedAlert.faceId && prev.some((item) => item.faceId === stampedAlert.faceId)) {
+                                return prev;
+                            }
+                            return [stampedAlert, ...prev]
+                                .filter((item) => stampedAlert.receivedAt - item.receivedAt <= ALERT_RETENTION_MS)
+                                .slice(0, 20);
+                        });
                     }
                 } catch (e) {
                     console.error('Failed to parse websocket alert:', e);
@@ -401,6 +408,7 @@ const Dashboard = () => {
 
     const navItems = [
         { id: 'overview', icon: LayoutGrid, label: 'Analytics Overview', visible: true },
+        { id: 'detection', icon: Camera, label: 'Detection Task', visible: true },
         { id: 'search', icon: SearchIcon, label: 'Trajectory Search', visible: true },
         { id: 'people', icon: Users, label: 'People Library', visible: canPeopleLibrary },
         { id: 'history', icon: History, label: 'Dataset', visible: user.role === 'SUPER_ADMIN' },
@@ -499,6 +507,7 @@ const Dashboard = () => {
                     <div>
                         <h1 style={{ fontSize: '26px', fontWeight: '700', marginBottom: '4px' }}>
                             {activeTab === 'overview' ? 'Command Center' :
+                                activeTab === 'detection' ? 'Detection Task Control' :
                                 activeTab === 'search' ? 'Trajectory Analysis' :
                                     activeTab === 'people' ? 'People Library' :
                                     activeTab === 'history' ? 'Dataset Explorer' :
@@ -507,6 +516,7 @@ const Dashboard = () => {
                         </h1>
                         <p style={{ color: '#94a3b8', fontSize: '14px' }}>
                             {activeTab === 'overview' ? 'Real-time intelligence and node health monitoring' :
+                                activeTab === 'detection' ? 'Start and stop webcam or RTSP stream detection tasks' :
                                 activeTab === 'search' ? 'Cross-referencing face signatures across distributed nodes' :
                                     activeTab === 'people' ? 'De-duplicated identity base and suspect controls' :
                                     activeTab === 'history' ? 'Reviewing the global capture database' :
@@ -535,6 +545,8 @@ const Dashboard = () => {
                             onDismissAlert={handleDismissAlert}
                             alertWsStatus={alertWsStatus}
                         />
+                    ) : activeTab === 'detection' ? (
+                        <DetectionTask />
                     ) : activeTab === 'search' ? (
                         <Search />
                     ) : activeTab === 'people' && canPeopleLibrary ? (

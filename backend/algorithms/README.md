@@ -9,11 +9,14 @@ From the repository root, with the virtualenv active:
 ```bash
 python backend/algorithms/demo.py --source 0 --location "Entrance"
 python backend/algorithms/demo.py --source path/to/video.mp4 --location "Main Gate"
+python backend/algorithms/demo.py --source "rtsp://127.0.0.1:8554/live" --location "Main Gate" --no-display
 ```
+
+The Detection Task page in the console starts the same script, once per webcam or stream URL.
 
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--source` | Camera index or video path | `0` |
+| `--source` | Camera index, video path, or RTSP/HTTP URL | `0` |
 | `--location` | Location stored on the capture | `Unknown` |
 | `--conf` | Detection confidence | `captureConfidence` in `config/settings.json` |
 | `--model` | Detector weights | `models/yolov8n-face.pt` |

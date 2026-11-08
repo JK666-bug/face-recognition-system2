@@ -16,7 +16,7 @@ import uuid
 def main():
     parser = argparse.ArgumentParser(description='YOLOv8 Face Detection & Tracking Unified Demo')
     
-    parser.add_argument('--source', type=str, default='0', help='Input: 0 for a camera, or a video file path')
+    parser.add_argument('--source', type=str, default='0', help='Camera index, video file, or an RTSP/HTTP stream URL')
     parser.add_argument('--model', type=str, default=None, help='Face detector weights (auto-detected by default)')
     parser.add_argument('--location', type=str, default='Unknown', help='Location stored with each capture')
     
