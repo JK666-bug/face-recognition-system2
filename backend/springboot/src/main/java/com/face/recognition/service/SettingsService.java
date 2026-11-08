@@ -1,6 +1,7 @@
 package com.face.recognition.service;
 
 import com.face.recognition.dto.SettingsDTO;
+import com.face.recognition.util.ProjectRoot;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -8,7 +9,7 @@ import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.Paths;
+import java.nio.file.Path;
 
 @Slf4j
 @Service
@@ -20,8 +21,8 @@ public class SettingsService {
 
     @PostConstruct
     public void init() {
-        String projectRoot = System.getProperty("user.dir");
-        configPath = Paths.get(projectRoot, "config", "settings.json").toString();
+        Path projectRoot = ProjectRoot.resolve();
+        configPath = projectRoot.resolve("config").resolve("settings.json").toString();
         
         File configFile = new File(configPath);
         if (!configFile.getParentFile().exists()) {

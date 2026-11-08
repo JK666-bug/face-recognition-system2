@@ -88,6 +88,8 @@
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
+                    <!-- Keep user.dir at the repository root so settings.json and .venv resolve. -->
+                    <workingDirectory>${project.basedir}/../..</workingDirectory>
                     <excludes>
                         <exclude>
                             <groupId>org.projectlombok</groupId>

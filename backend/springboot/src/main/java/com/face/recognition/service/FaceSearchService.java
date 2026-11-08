@@ -2,6 +2,7 @@ package com.face.recognition.service;
 
 import com.face.recognition.dto.SearchMatchDTO;
 import com.face.recognition.util.MinioMetadataFlags;
+import com.face.recognition.util.ProjectRoot;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.milvus.client.MilvusServiceClient;
@@ -227,12 +228,16 @@ public class FaceSearchService {
     }
 
     private List<Float> extractFeatureWithPython(String imagePath) throws Exception {
-        String projectRoot = System.getProperty("user.dir");
-        // 路径适配 Windows
-        String pythonExe = Paths.get(projectRoot, ".venv", "Scripts", "python.exe").toString();
-        String scriptPath = Paths.get(projectRoot, "backend", "algorithms", "extract_cli.py").toString();
+        Path projectRoot = ProjectRoot.resolve();
+        String pythonExe = ProjectRoot.pythonExecutable(projectRoot);
+        Path script = projectRoot.resolve("backend").resolve("algorithms").resolve("extract_cli.py");
+        if (!Files.isRegularFile(script)) {
+            throw new RuntimeException("extract_cli.py not found. Start Spring Boot from the repository root. cwd="
+                    + System.getProperty("user.dir"));
+        }
+        log.info("Feature extraction using python={} script={}", pythonExe, script);
 
-        ProcessBuilder pb = new ProcessBuilder(pythonExe, scriptPath, imagePath);
+        ProcessBuilder pb = new ProcessBuilder(pythonExe, script.toString(), imagePath);
         pb.redirectErrorStream(true);
         Process process = pb.start();
 

@@ -64,5 +64,13 @@ wheels/
 .coverage
 htmlcov/
 
-# If you have media files uploaded or generated, you might want to ignore them
+# ==========================================
+# Backend (Java)
+# ==========================================
+backend/springboot/target/
+
+# Generated capture output
+backend/algorithms/output/
+
+# Local media used only for demos
 # backend/algorithms/media/ 
